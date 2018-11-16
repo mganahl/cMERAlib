@@ -29,12 +29,11 @@ def checkWick(lam,Rl):
 
 def checkWickTheorem(Ql,Rl,r,dx,N):
     dens=np.trace(Rl.dot(r).dot(herm(Rl)))
-    cdag_c=cmf.HomogeneousLiebLinigerCdagC(Ql,Rl,r,dx,N)
+    cdag_c=cmf.calculateCorrelators(Ql,Rl,r,operators=['psi_dag','psi'],dx=dx,N=N)    
     c_cdag=np.conj(cdag_c)
-    cdag_cdag=cmf.HomogeneousLiebLinigerCdagCdag(Ql,Rl,r,dx,N)
+    cdag_cdag=cmf.calculateCorrelators(Ql,Rl,r,operators=['psi_dag','psi_dag'],dx=dx,N=N)    
     c_c=np.conj(cdag_cdag)
-    nn=cmf.HomogeneousLiebLinigerNN(Ql,Rl,r,dx,N)
-
+    nn=cmf.calculateCorrelators(Ql,Rl,r,operators=['n','n'],dx=dx,N=N)        
     return nn-(cdag_cdag*c_c+dens**2+cdag_c*c_cdag)
 
 def alpha(s,k):

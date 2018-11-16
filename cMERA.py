@@ -301,8 +301,10 @@ def calculatePiPiCorrelators(data_accumulator,cmera,N1=10,N2=40000,eps1=1E-4,eps
     lamtens=cmera.lam
 
     x=np.append(np.arange(1,N1+1)*eps1,np.arange(2,N2+1)*eps2)
-    pipi1,vec1=cmf.PiPiCorr(Qltens,Rltens,np.diag(lamtens**2),eps1,N1,cmera.cutoff,initial=None)
-    pipi2,vec2=cmf.PiPiCorr(Qltens,Rltens,np.diag(lamtens**2),eps2,N2,cmera.cutoff,initial=vec1)
+    pipi1,vec1=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=['pi','pi'],dx=eps1,N=N1,initial=None)
+    pipi2,vec2=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=['pi','pi'],dx=eps2,N=N2,initial=vec1)
+    #=cmf.PiPiCorr(Qltens,Rltens,np.diag(lamtens**2),eps1,N1,cmera.cutoff,initial=None)
+    #=cmf.PiPiCorr(Qltens,Rltens,np.diag(lamtens**2),eps2,N2,cmera.cutoff,initial=vec1)
     pipi=np.append(pipi1,pipi2[1::])    
 
     if 'pipi' not in data_accumulator:
@@ -338,8 +340,10 @@ def calculatedPhidPhiCorrelators(data_accumulator,cmera,N1=10,N2=40000,eps1=1E-4
     lamtens=cmera.lam
 
     x=np.append(np.arange(1,N1+1)*eps1,np.arange(2,N2+1)*eps2)
-    dxphidxphi1,vec1=cmf.dxPhidxPhiCorr(Qltens,Rltens,np.diag(lamtens**2),eps1,N1,cmera.cutoff,initial=None)
-    dxphidxphi2,vec2=cmf.dxPhidxPhiCorr(Qltens,Rltens,np.diag(lamtens**2),eps2,N2,cmera.cutoff,initial=vec1)
+    dxphidxphi1,vec1=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=['p_phi','p_phi'],dx=eps1,N=N1,initial=None)
+    dxphidxphi2,vec2=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=['p_phi','p_phi'],dx=eps2,N=N2,initial=vec1)
+    #dxphidxphi1,vec1=cmf.dxPhidxPhiCorr(Qltens,Rltens,np.diag(lamtens**2),eps1,N1,cmera.cutoff,initial=None)
+    #dxphidxphi2,vec2=cmf.dxPhidxPhiCorr(Qltens,Rltens,np.diag(lamtens**2),eps2,N2,cmera.cutoff,initial=vec1)
     dxphidxphi=np.append(dxphidxphi1,dxphidxphi2[1::])
 
     if 'dphidphi' not in data_accumulator:

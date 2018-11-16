@@ -389,7 +389,7 @@ def regauge(Q,R,gauge='left',init=None,maxiter=100000,tol=1E-10,ncv=100,numeig=6
         return r,x,Qr,Rr
 
     
-def canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=100,numeig=6,pinv=1E-200,trunc=1E-16,Dmax=100,thresh=1E-10,verbosity=0,**kwargs):
+def canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=40,numeig=6,pinv=1E-200,trunc=1E-16,Dmax=100,thresh=1E-10,verbosity=0,**kwargs):
     """
     regauge a cMPS into left or right orthogonal form
 
@@ -519,8 +519,6 @@ def canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=100,numeig=6
         V=V[0:len(lam),:]
         Z1=np.linalg.norm(lam)
         lam=lam/Z1
-
-
     Rl=[]
     Ql=Z*np.diag(lam).dot(V).dot(invx).dot(Q).dot(invy).dot(U)
     for n in range(len(R)):
@@ -535,55 +533,6 @@ def canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=100,numeig=6
     return lam,Ql,Rl,Qr,Rr,rest
 
 
-def PiPhiCorr(Ql,Rl,r,dx,N):
-    D=np.shape(Ql)[0]
-    corr=np.zeros(N,dtype=type(Ql[0,0]))
-    vec=-1j/2.0*(np.reshape(np.transpose(Rl)-np.conj(Rl),D*D))
-    rden=snp.tensordot(Rl,r,([1],[0]))+np.tensordot(r,np.conj(Rl),([1],[1]))
-    for n in range(N):
-        if n%1000==0:
-            stdout.write("\r %i/%i" %(n,N))            
-            stdout.flush()
-        vec=vec+dx*transferOperator(Ql,[Rl],1,vec)
-        corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
-    return corr
-
-def PiPiCorr(Ql,Rl,r,dx,N,cutoff,initial=None):
-    """
-    
-    """
-    D=np.shape(Ql)[0]
-    corr=np.zeros(N,dtype=type(Ql[0,0]))
-    if np.any(initial==None):
-        vec=-cutoff/2.0*(np.reshape(np.transpose(Rl)-np.conj(Rl),D*D))
-    else:
-        vec=initial
-    rdens=np.tensordot(Rl,r,([1],[0]))-np.tensordot(r,np.conj(Rl),([1],[1]))
-    for n in range(N):
-        if n%1000==0:
-            stdout.write("\r %i/%i" %( n,N))
-            stdout.flush()
-        vec=vec+dx*transferOperator(Ql,[Rl],1,vec)
-        corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
-    return corr,vec
-
-
-def dxPhidxPhiCorr(Ql,Rl,r,dx,N,cutoff,initial=None):
-    D=np.shape(Ql)[0]
-    corr=np.zeros(N,dtype=type(Ql[0,0]))
-    commQR=comm(Ql,Rl)
-    if np.any(initial==None):
-        vec=1/(2.0*cutoff)*(np.reshape(np.transpose(commQR)+np.conj(commQR),D*D))
-    else:
-        vec=initial
-    rdens=np.tensordot(commQR,r,([1],[0]))+np.tensordot(r,np.conj(commQR),([1],[1]))
-    for n in range(N):
-        if n%1000==0:
-            stdout.write("\r %i/%i" %( n,N))
-            stdout.flush()
-        vec=vec+dx*transferOperator(Ql,[Rl],1,vec)
-        corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
-    return corr,vec
 
 def PiPiCorrMoronOrdered(Ql,Rl,r,dx,N,cutoff,psiinitial=None,psidaginitial=None):
     D=np.shape(Ql)[0]
@@ -611,11 +560,127 @@ def PiPiCorrMoronOrdered(Ql,Rl,r,dx,N,cutoff,psiinitial=None,psidaginitial=None)
                  2.0*np.tensordot(np.reshape(vecpsidag,(D,D)),rdenspsi,([0,1],[0,1]))
     return corr,vecpsi,vecpsidag
 
-def PhiPhiCorr(Ql,Rl,r,dx,N,cutoff):
+def calculateRelativisticCorrelators(Ql,Rl,r,cutoff,operators,dx,N,initial=None):
+    """
+    calculate correlators of (relativistic) field operators phi, pi, and partial phi for a 
+    bosonic theory with a single species of bosons
+
+    Parameters:
+    --------------------
+    Ql:        np.ndarray of shape (D,D)
+               cMPS matrix in left orthogonal form
+    Rl:        np.ndarray of shape (D,D)
+               cMPS matrix in left orthogonal form
+    r:         np.ndarray of shape (D,D)
+               right reduced density matrix (i.e. right dominant eigenvector of the cMPS transfer operator)
+    cutoff:    float
+               enters definition of phi and pi via
+               psi=sqrt(cutoff/2)phi +1/sqrt(2*cutoff)pi
+    operators: list of length 2 of str
+               each element in operators can be either of ['psi','psi_dag','n']
+    dx:        float
+               space increment, used to calculate the correlation at psi*(0)psi(n*dx)
+    N:         int
+               calculate correlator at points x=np.arange(N)*dx
+    initial:   np.ndarray of shape (D**2,), or None
+               you can feed the output second output of a prior call of the function back as initial state
+               to resume calculation with different dx and N
+    Returns:
+    -----------------
+    (corr,vec)
+    corr: np.ndarray of shape (N,)
+          the correlator
+    vec: np.ndarray of shape (D**2,)
+         result of the last evolution step
+    """
+    
     D=np.shape(Ql)[0]
     corr=np.zeros(N,dtype=type(Ql[0,0]))
-    vec=1.0/(2.0*cutoff)*(np.reshape(np.transpose(Rl)+np.conj(Rl),D*D))
-    rdens=np.tensordot(Rl,r,([1],[0]))+np.tensordot(r,np.conj(Rl),([1],[1]))
+    if operators[0]=='phi':
+        if np.any(initial==None):
+            vec=1.0/(2.0*cutoff)*(np.reshape(np.transpose(Rl)+np.conj(Rl),D*D))
+        else:
+            vec=initial
+    elif operators[0]=='pi':
+        if np.any(initial==None):
+            vec=-cutoff/2.0*(np.reshape(np.transpose(Rl)-np.conj(Rl),D*D))
+        else:
+            vec=initial
+
+    elif operators[0]=='p_phi':
+        if np.any(initial==None):
+            commQR=comm(Ql,Rl)
+            vec=1/(2.0*cutoff)*(np.reshape(np.transpose(commQR)+np.conj(commQR),D*D))
+        else:
+            vec=initial
+    else:
+        raise ValueError("unknown operator {0}".format(operators[0]))
+    
+    if operators[1]=='phi':
+        rdens=np.tensordot(Rl,r,([1],[0]))+np.tensordot(r,np.conj(Rl),([1],[1]))
+    elif operators[1]=='pi':        
+        rdens=np.tensordot(Rl,r,([1],[0]))-np.tensordot(r,np.conj(Rl),([1],[1]))
+    elif operators[1]=='p_phi':
+        commQR=comm(Ql,Rl)
+        rdens=np.tensordot(commQR,r,([1],[0]))+np.tensordot(r,np.conj(commQR),([1],[1]))
+    else:
+        raise ValueError("unknown operator {0}".format(operators[1]))
+        
+    for n in range(N):
+        if n%1000==0:
+            stdout.write("\r %i/%i" %( n,N))
+            stdout.flush()
+        vec=vec+dx*transferOperator(Ql,[Rl],1,vec)
+        corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
+    return corr,vec
+
+
+def calculateCorrelators(Ql,Rl,r,operators,dx,N):
+    """
+    calculate correlators for a
+    bosonic theory with a single species of bosons
+
+    Parameters:
+    --------------------
+    Ql:        np.ndarray of shape (D,D)
+               cMPS matrix in left orthogonal form
+    Rl:        np.ndarray of shape (D,D)
+               cMPS matrix in left orthogonal form
+    r:         np.ndarray of shape (D,D)
+               right reduced density matrix (i.e. right dominant eigenvector of the cMPS transfer operator)
+    operators: list of length 2 of str
+               each element in operators can be either of ['psi','psi_dag','n']
+    dx:        float
+               space increment, used to calculate the correlation at psi*(0)psi(n*dx)
+    N:         int
+               calculate correlator at points x=np.arange(N)*dx
+
+    Returns:
+    -----------------
+    np.ndarray of shape (N,)
+    the correlator
+    """
+    
+    D=np.shape(Ql)[0]
+    corr=np.zeros(N,dtype=type(Ql[0,0]))
+    if operators[0]=='psi_dag':
+        vec=np.reshape(np.conj(Rl),D*D)
+    elif operators[0]=='psi':
+        vec=np.reshape(np.transpose(Rl),D*D)
+    elif operators[0]=='n':
+        vec=np.reshape(np.transpose(herm(Rl).dot(Rl)),D*D)
+    else:
+        raise ValueError("unknown operator {0}".format(operators[0]))
+    
+    if operators[1]=='psi':        
+        rdens=np.tensordot(Rl,r,([1],[0]))
+    elif operators[1]=='psi_dag':        
+        rdens=np.tensordot(r,np.conj(Rl),([1],[1]))
+    elif operators[1]=='n':
+        rdens=np.tensordot(np.tensordot(Rl,r,([1],[0])),np.conj(Rl),([1],[1]))
+    else:
+        raise ValueError("unknown operator {0}".format(operators[1]))
+        
     for n in range(N):
         if n%1000==0:
             stdout.write("\r %i/%i" %( n,N))
@@ -624,68 +689,3 @@ def PhiPhiCorr(Ql,Rl,r,dx,N,cutoff):
         corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
     return corr
 
-
-def HomogeneousLiebLinigerCdagC(Ql,Rl,r,dx,N):
-    D=np.shape(Ql)[0]
-    corr=np.zeros(N,dtype=type(Ql[0,0]))
-    vec=np.reshape(np.conj(Rl),D*D)
-    rdens=np.tensordot(Rl,r,([1],[0]))
-    for n in range(N):
-        if n%1000==0:
-            stdout.write("\r %i/%i" %( n,N))
-            stdout.flush()
-        vec=vec+dx*transferOperator(Ql,[Rl],1,vec)
-        corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
-    return corr
-
-
-def HomogeneousLiebLinigerCCdag(Ql,Rl,r,dx,N):
-    D=np.shape(Ql)[0]
-    corr=np.zeros(N,dtype=type(Ql[0,0]))
-    vec=np.reshape(np.transpose(Rl),D*D)
-    rdens=np.tensordot(r,np.conj(Rl),([1],[1]))
-    for n in range(N):
-        if n%1000==0:
-            stdout.write("\r %i/%i" %( n,N))
-            stdout.flush()
-        vec=vec+dx*transferOperator(Ql,[Rl],1,vec)
-        corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
-    return corr
-
-
-def HomogeneousLiebLinigerCdagCdag(Ql,Rl,r,dx,N):
-    D=np.shape(Ql)[0]
-    corr=np.zeros(N,dtype=type(Ql[0,0]))
-    vec=np.reshape(np.conj(Rl),D*D)
-    rdens=np.tensordot(r,np.conj(Rl),([1],[1]))
-    for n in range(N):
-        if n%1000==0:
-            stdout.write("\r %i/%i" %( n,N))
-            stdout.flush()
-        vec=vec+dx*transferOperator(Ql,[Rl],1,vec)
-        corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
-    return corr
-
-
-def HomogeneousLiebLinigerCC(Ql,Rl,r,dx,N):
-    D=np.shape(Ql)[0]
-    corr=np.zeros(N,dtype=type(Ql[0,0]))
-    vec=np.reshape(np.transpose(Rl),D*D)
-    rdens=np.tensordot(Rl,r,([1],[0]))
-    for n in range(N):
-        if n%1000==0:
-            stdout.write("\r %i/%i" %( n,N))
-            stdout.flush()
-        vec=vec+dx*transferOperatorr(Ql,[Rl],1,vec)
-        corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
-    return corr
-
-def HomogeneousLiebLinigerNN(Ql,Rl,r,dx,N):
-    D=np.shape(Ql)[0]
-    corr=np.zeros(N,dtype=type(Ql[0,0]))
-    vec=np.reshape(np.transpose(herm(Rl).dot(Rl)),D*D)
-    rdens=np.tensordot(np.tensordot(Rl,r,([1],[0])),np.conj(Rl),([1],[1]))
-    for n in range(N):
-        vec=vec+dx*transferOperator(Ql,[Rl],1,vec)
-        corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
-    return corr
