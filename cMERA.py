@@ -13,157 +13,190 @@ import re
 comm=lambda x,y:np.dot(x,y)-np.dot(y,x)
 anticomm=lambda x,y:np.dot(x,y)+np.dot(y,x)
 herm=lambda x:np.conj(np.transpose(x))
-#plt.ion()
-
 
 class cMERA(object):
     """
     a class for simulating a cMERA evolution
     """
-    def __init__(self,dtype=complex,cutoff=1,delta=1E-3j,fullint=False,inter=0,ddint=False,invrange=1.0,nwarmup=2,Dmax=16):
+    def __init__(self,cutoff=1.0,alpha=None,inter=0.0,invrange=1.0,operators=['n','n'],delta=1E-3j,nwarmup=2,Dmax=16,dtype=complex):
         """
         initialize a cMERA evolution for a scalar boson
         Parameters:
+        --------------------
+        cutoff:    float (1.0)
+                   UV cutoff of the cMERA
+                   cutoff enters in the definition of the free entangler K0 (see below) 
+                   as well as in the definition of the interacting entangler via the definition of 
+                   psi(x) =\sqrt(cutoff/2)phi(x)+1/sqrt(2*cutoff)pi(x)
+        alpha:     float or None
+                   prefactor of the free entangler, if None, alpha=cutoff/4 is used
+                   the free entangler has the form 
+                   K0=alpha\int dx dy exp(-cutoff*abs(x-y)) :pi(x)phi(y):
+                     =-1j*alpha/2\int dx dy exp(-cutoff*abs(x-y))*(psi(x)psi(y)-psi_dag(x)psi_dag(y))
+                   to obtain the correct entangler for the ground-state of free boson with cutoff, use alpha=cutoff/4 (default)
+        inter:     float
+                   the interaction strength of the entangler
+        invrange:  float
+                   inverse length scale of the interaction
+        operators: list of str
+                   operators used to construct entangling propagator
+                   case 1: for operators = ['n','n'], the entangler is given by inter * \int dx dy n(x) n(y) exp(-invrange*abs(x-y))
+                           if len(operators)==2, operators=['n','n'] is the only allowed choice
+                   case 2: for operators = [o1,o2,o3,o4], the entangler is given by inter * \int dw dx dy dx o1(w) o2(x) o3(y) o4(z) exp(-invrange abs(w-z))
+                           if len(operators)==4, each element in operators can be one of the following :'phi','pi','psi','psi_dag'
+        delta:     complex 
+                   the step-size of the evolution
+        nwarmup:   int
+                   number of warmups steps
+        Dmax:      int
+                   maximum bond dimension
+        dtype:     type float or type complex (complex)
+                   the data type of the cMERA/cMPS matrices
 
-        dtype:  type float or type complex (complex)
-                the data type of the cMERA/cMPS matrices
-        cutoff: float (1.0)
-                UV cutoff of the cMERA
-        delta:  complex (0.001j)
-                the step-size of the evolution
-        fullint: bool (False)
-                 use the fully interacting entangler ("soft-phi-four") 
-        ddint:   bool (False)
-                 use a density-density interacting entangler
-        inter:   float
-                 the interaction strength of the entangler
-        invrange: float
-                  inverse length scale of the interaction
-        nwarmup:  int
-                  number of warmups steps
-        Dmax:     int
-                  maximum bond dimension
         """
+        
         self.dtype=dtype
-        self.cutoff=cutoff
-        self.delta=delta
-        self.fullint=fullint
-        self.inter=inter
-        self.ddint=ddint
-        self.invrange=invrange
         self.Dmax=Dmax
         self.scale=0.0
         self.iteration=0
-        
+        self.cutoff=cutoff
         self.Ql=np.ones((1,1)).astype(self.dtype)
         self.Rl=np.zeros((1,1)).astype(self.dtype)
         self.lam=np.array([1.0])
         self.D=len(self.lam)
         self.truncated_weight=0.0
-        self.Gamma=cmeralib.freeBosoncMERA_CMPO(self.cutoff,self.delta)
-        if (self.fullint==True) and (abs(self.inter)>1E-10):
-            self.Gammaint=cmeralib.fullInteractingBosoncMERA_CMPO(0.1,self.cutoff,self.invrange,self.delta,self.inter,dtype=self.dtype)
-        elif (self.ddint==True) and (abs(self.inter)>1E-10):
-            self.Gammaint=cmeralib.interactingBosoncMERA_CMPO(self.invrange,self.delta,self.inter)
-        else:
-            self.Gammaint=[[np.asarray([1.0]),np.asarray([1.0])],[np.asarray([1.0]),np.asarray([1.0])]]
-        self.Dmpoint=self.Gammaint[0][0].shape[0]
-        self.Dmpo=self.Gamma[0][0].shape[0]
-        #do a warmup evolution without any truncation
-        #problems can arise if truncation threshold of the evolution is so large that it truncates away any new schmidt values; in this case
-        #the state will stay a product state for all times. A way to circumvent this problem is to either choose a smaller truncation threshold
-        #or do a warmup run without truncation. This way, the evolution can introduce Schmidt-values above the truncation threshold
-        for n in range(nwarmup):
-            self.scale+=np.abs(self.delta)
-            self.iteration+=1
-            self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gamma[0][0])+np.kron(self.Ql,np.eye(self.Dmpo))+np.kron(self.Rl,self.Gamma[1][0])
-            self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gamma[0][1])+np.kron(self.Rl,np.eye(self.Dmpo))
-            if np.abs(inter)>1E-8:
-                if ddint:
-                    self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gammaint[0][0])+np.kron(self.Ql,np.eye(self.Dmpoint))#+np.kron(self.Rl,Gammaint[1][0])
-                    self.Rl=np.kron(self.Rl,self.Gammaint[1][1])
-                if self.fullint:
-                    self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gammaint[0][0])+np.kron(self.Ql,np.eye(self.Dmpoint))#+np.kron(self.Rl,Gammaint[1][0])
-                    self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gammaint[0][1])+np.kron(self.Rl,np.eye(self.Dmpoint))
-        
-            self.Ql=self.Ql*np.exp(-np.imag(self.delta))
-            self.Rl=self.Rl*np.exp(-np.imag(self.delta)/2.0)
-        
+        self.Gamma=cmeralib.freeEntanglingPropagator(cutoff=cutoff,delta=delta,alpha=alpha)
 
+        for n in range(nwarmup):
+            self.doStep(cutoff=cutoff,alpha=alpha,inter=inter,invrange=invrange,operators=operators,delta=delta,truncAfterFree=False,truncAfterInt=False)
+            #do a warmup evolution without any truncation
+            #problems can arise if truncation threshold of the evolution is so large that it truncates away any new schmidt values; in this case
+            #the state will stay a product state for all times. A way to circumvent this problem is to either choose a smaller truncation threshold
+            #or do a warmup run without truncation. This way, the evolution can introduce Schmidt-values above the truncation threshold
         #self.lam,self.Ql,self.Rl,Qrtens,Rrtens,rest1=cmf.regauge_with_trunc(self.Ql,[self.Rl],dx=0.0,gauge='symmetric',linitial=None,rinitial=None,nmaxit=100000,tol=1E-14,\
             #                                                                    ncv=40,numeig=6,pinv=1E-200,thresh=1E-10,trunc=1E-16,Dmax=self.Ql.shape[0],verbosity=0)
         #self.Rl=self.Rl[0]
-
-    def doStep(self,delta=None,pinv=1E-20,tol=1E-10,Dthresh=1E-6,trunc=1E-10,Dinc=1,ncv=30,numeig=6,thresh=1E-8):
+    def doStep(self,cutoff=1.0,alpha=None,inter=0.0,invrange=1.0,operators=['n','n'],delta=1E-3,truncAfterFree=True,truncAfterInt=True,
+               pinv=1E-200,tol=1E-12,Dthresh=1E-6,trunc=1E-10,Dinc=1,ncv=30,numeig=6,thresh=1E-8):
         """
         do a single evolution step
 
         Parameters:
-
-        delta:   float (None)
-                 step-size; if None, doStep uses the stepsize given during construction of the simulation instance;
-                 otherwise, it constructs propagators using the value of the last call (or the value passed during 
-                 construction)
-        pinv:    float (1E-20)
-                 pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
-        tol:     float (1E-10):
-                 precision parameter for calculating the reduced density matrices during truncation
-        Dthresh: float (1E-6)
-                 threshold parameter; if the truncated weight of the last truncation is larger than Dthres,
-                 the bond dimension D is increased by Dinc; if D is already at its maximally allowed value, 
-                 D is not changed
-        trunc:   float (1E-10)
-                 truncation threshold during regauging; all Schmidt-values smaller than trunc will be removed, irrespective
-                 of the maximally allowed bond-dimension
-        Dinc:    int (1) 
-                 bond-dimension increment
-        ncv:     int (30)nn
-                 number of krylov vectors to be used when calculating the transfer-matrix eigenvectors during truncation
-        numeig:  int (6)
-                 number of eigenvector-eigenvalue pairs of the transfer-matrix to be calculated 
-        thresh:  float (1E-10)
-                 related to printing some warnings; not relevant
+        cutoff:    float (1.0)
+                   UV cutoff of the cMERA
+                   cutoff enters in the definition of the free entangler K0 (see below) 
+                   as well as in the definition of the interacting entangler via the definition of 
+                   psi(x) =\sqrt(cutoff/2)phi(x)+1/sqrt(2*cutoff)pi(x)
+        alpha:     float or None
+                   prefactor of the free entangler, if None, alpha=cutoff/4 is used
+                   the free entangler has the form 
+                   K0=alpha\int dx dy exp(-cutoff*abs(x-y)) :pi(x)phi(y):
+                     =-1j*alpha/2\int dx dy exp(-cutoff*abs(x-y))*(psi(x)psi(y)-psi_dag(x)psi_dag(y))
+                   to obtain the correct entangler for the ground-state of free boson with cutoff, use alpha=cutoff/4 (default)
+        inter:     float
+                   the interaction strength of the entangler
+        invrange:  float
+                   inverse length scale of the interaction
+        operators: list of str
+                   operators used to construct entangling propagator
+                   case 1: for operators = ['n','n'], the entangler is given by inter * \int dx dy n(x) n(y) exp(-invrange*abs(x-y))
+                           if len(operators)==2, operators=['n','n'] is the only allowed choice
+                   case 2: for operators = [o1,o2,o3,o4], the entangler is given by inter * \int dw dx dy dx o1(w) o2(x) o3(y) o4(z) exp(-invrange abs(w-z))
+                           if len(operators)==4, each element in operators can be one of the following :'phi','pi','psi','psi_dag'
+        delta:    float
+                  step-size;
+                  propagators are constructed using delta
+        truncAfterFree:  bool
+                         if True, truncate the cMPS after application of the free propagator
+                         Application order of propagators: 
+                         1. free evolution
+                         2. interacting evolution
+                         3. rescaling
+        truncAfterInt:   bool
+                         if True, truncate the cMPS after application of the interacting propagator
+                         for operators =['phi','phi','phi','phi'], bond dimension of the propagator 
+                         is 4. Together with bond dimension 3 of free propagator, a full application 
+                         without intermediate truncation increases D by a factor of 12, which can cause
+                         slowness.
+                         Application order of propagators: 
+                         1. free evolution
+                         2. interacting evolution
+                         3. rescaling
+        pinv:     float (1E-20)
+                  pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
+        tol:      float (1E-10):
+                  precision parameter for calculating the reduced density matrices during truncation
+        Dthresh:  float (1E-6)
+                  threshold parameter; if the truncated weight of the last truncation is larger than Dthres,
+                  the bond dimension D is increased by Dinc; if D is already at its maximally allowed value, 
+                  D is not changed
+        trunc:    float (1E-10)
+                  truncation threshold during regauging; all Schmidt-values smaller than trunc will be removed, irrespective
+                  of the maximally allowed bond-dimension
+        Dinc:     int (1) 
+                  bond-dimension increment
+        ncv:      int (30)nn
+                  number of krylov vectors to be used when calculating the transfer-matrix eigenvectors during truncation
+        numeig:   int (6)
+                  number of eigenvector-eigenvalue pairs of the transfer-matrix to be calculated 
+        thresh:   float (1E-10)
+                  related to printing some warnings; not relevant
         """
-        if (delta!=None) and (delta!=self.delta):
-            self.delta=delta
-            self.Gamma=cmeralib.freeBosoncMERA_CMPO(self.cutoff,self.delta)
-            if (self.fullint==True) and (abs(self.inter)>1E-10):
-                self.Gammaint=cmeralib.fullInteractingBosoncMERA_CMPO(0.1,self.cutoff,self.invrange,self.delta,self.inter,dtype=self.dtype)
-            elif (self.ddint==True) and (abs(self.inter)>1E-10):
-                self.Gammaint=cmeralib.interactingBosoncMERA_CMPO(self.invrange,self.delta,self.inter)
-            else:
-                self.Gammaint=[[np.asarray([1.0]),np.asarray([1.0])],[np.asarray([1.0]),np.asarray([1.0])]]
-            self.Dmpoint=self.Gammaint[0][0].shape[0]
-            self.Dmpo=self.Gamma[0][0].shape[0]
-            
+        
+        self.cutoff=cutoff        
+        if len(operators)==2:
+            if not all([o=='n' for o in operators]):
+                raise ValueError("unknown operators {}. If len(operators)==2, elements in operators can only be 'n'".format(np.array(operators)[[o != 'n' for o in operators]]))
+            if abs(inter)>1E-10:            
+                self.Gammaint=cmeralib.density_density_interactingEntanglingPropagator(invrange=invrange,delta=delta,inter=inter)
+                self.Dmpoint=self.Gammaint[0][0].shape[0]
+                interactiontype='nn'
+        elif len(operators)==4:
+            if not all([o in ('phi','pi','psi','psi_dag') for o in operators]):
+                print()
+                raise ValueError("unknown operators {}. If len(operators)==4, each element in operators has to be one of ('phi','pi','psi','psi_dag')".format(np.array(operators)[[o not in ('phi','pi','psi','psi_dag') for o in operators]]))
+            if abs(inter)>1E-10:
+                self.Gammaint=cmeralib.interactingEntanglingPropagator(cutoff=cutoff,invrange=invrange,delta=delta,inter=inter,operators=operators,dtype=self.dtype)
+                self.Dmpoint=self.Gammaint[0][0].shape[0]
+                interactiontype='oooo'
+        else:
+            raise ValueError("length of list 'operators' has to be 2 or 4")
+        self.Gamma=cmeralib.freeEntanglingPropagator(cutoff=cutoff,delta=delta,alpha=alpha)
+        self.Dmpo=self.Gamma[0][0].shape[0]
+        
         if (self.truncated_weight>Dthresh) and (self.D<self.Dmax) and (len(self.lam)==self.D):
             self.D+=Dinc
-
-        self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gamma[0][0])+np.kron(self.Ql,np.eye(self.Dmpo))+np.kron(self.Rl,self.Gamma[1][0])
-        self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gamma[0][1])+np.kron(self.Rl,np.eye(self.Dmpo))
-        if np.abs(self.inter)>1E-8:
-            if self.ddint:
-                self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gammaint[0][0])+np.kron(self.Ql,np.eye(self.Dmpoint))
+            
+        if (alpha==None) or (np.abs(alpha)>1E-10):
+            self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gamma[0][0])+np.kron(self.Ql,np.eye(self.Dmpo))+np.kron(self.Rl,self.Gamma[1][0])
+            self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gamma[0][1])+np.kron(self.Rl,np.eye(self.Dmpo))
+            if truncAfterFree:
+                try:                
+                    self.lam,self.Ql,self.Rl,Qrtens,Rrtens,rest1=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
+                                                                              ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=self.D,verbosity=0)
+                    self.truncated_weight=np.sum(rest1)
+                    self.Rl=self.Rl[0]
+                except TypeError:
+                    pass
+                
+        if np.abs(inter)>1E-10:
+            self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gammaint[0][0])+np.kron(self.Ql,np.eye(self.Dmpoint))
+            if interactiontype=='nn':
                 self.Rl=np.kron(self.Rl,self.Gammaint[1][1])
-            if self.fullint:            
-                self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gammaint[0][0])+np.kron(self.Ql,np.eye(self.Dmpoint))
+            elif interactiontype=='oooo':                
                 self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gammaint[0][1])+np.kron(self.Rl,np.eye(self.Dmpoint))
-            #try:
-            #    self.lam,self.Ql,self.Rl,Qrtens,Rrtens,rest2=cmf.regauge_with_trunc(self.Ql,[self.Rl],dx=0.0,gauge='symmetric',linitial=None,rinitial=None,nmaxit=100000,tol=tol,\
-            #                                                                        ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=self.D,verbosity=0)
-            #    self.truncated_weight+=np.sum(rest2)            
-            #    self.Rl=self.Rl[0]
-            #except TypeError:
-            #    pass
+            if truncAfterInt:                
+                try:
+                    self.lam,self.Ql,self.Rl,Qrtens,Rrtens,rest2=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
+                                                                              ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=self.D,verbosity=0)
+                    self.truncated_weight+=np.sum(rest2)            
+                    self.Rl=self.Rl[0]
+                except TypeError:
+                    pass
             
-        self.lam,self.Ql,self.Rl,Qrtens,Rrtens,rest1=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
-                                                                  ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=self.D,verbosity=0)
-        self.truncated_weight=np.sum(rest1)
-        self.Rl=self.Rl[0]
-            
-        self.Ql*=np.exp(-np.imag(self.delta))
-        self.Rl*=np.exp(-np.imag(self.delta)/2.0)
-        self.scale+=np.abs(self.delta)
+        self.Ql*=np.exp(-np.imag(delta))
+        self.Rl*=np.exp(-np.imag(delta)/2.0)
+        self.scale+=np.abs(delta)
         self.iteration+=1        
         
     def save(self,filename):
@@ -348,7 +381,7 @@ def calculatePsiObservables(data_accumulator,cmera):
 
 def calculateDensityObservables(data_accumulator,cmera):
     """
-    calculates the observable <psi* psi> (particle density) using the cMPS tensors from cmera
+    calculates the observable <psi_dag psi> (particle density) using the cMPS tensors from cmera
     and stores it in data_accumulator
     Parameters:
     ----------------------
@@ -637,16 +670,22 @@ def plot(data_accumulator,title='',which=('pipi','dphidphi','lam','density','psi
         except KeyError:
             pass
     plt.ioff()
+
+
+    
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser('cMERA.py')
+    parser.add_argument('--info_cMERA', help='print a small manual',action='store_true')    
     parser.add_argument('--delta',help='imaginary part of the time step for unitary time evolution (0.001)',type=float,default=0.001)
     parser.add_argument('--Dmax', help='maximal cMPS bond dimension (32)',type=int,default=32)
     parser.add_argument('--nwarmup', help='number of initial warmup-steps without truncation (2); ',type=int,default=2)    
     parser.add_argument('--Dinc', help='bond dimension increment (1)',type=int,default=1)    
     parser.add_argument('--cutoff', help='UV cutoff of the entangler (1.0)',type=float,default=1.0)
+    parser.add_argument('--alpha', help='entangling strength; if not given, alpha=cutoff/4 (None)',type=float,default=None)    
     parser.add_argument('--invrange', help='inverse interctionrange (1.0)',type=float,default=1.0)    
     parser.add_argument('--pinv',help='pseudoinver cutoff (1E-20); if chosen too large, severe artifacts will show up',type=float,default=1E-20)
+    parser.add_argument('--operators', nargs='+',help="list of length 2 or 4 of str. \n for length 2: elements have to be  'n'; \n for length 4: use any of the following: ['pi','phi','psi','psi_dag']",type=str,default=['n','n'])
     parser.add_argument('--trunc',help='truncation threshold (1E-10); all schmidt-values below trunc will be discarded, irrespective of Dmax',type=float,default=1E-10)
     parser.add_argument('--Dthresh',help='truncation threshold at which the bond dimension is increased by Dinc (1E-6)',type=float,default=1E-6)    
     parser.add_argument('--thresh',help='threshold for "large-imaginary-eigenvalue" error (1E-10); dont worry about it',type=float,default=1E-10)        
@@ -655,7 +694,8 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint', help='save the simulation every checkpoint iterations for checkpointing (100)',type=int,default=100)
     parser.add_argument('--resume_checkpoint', help='load a checkpointed file and resume simulation',type=str)
     parser.add_argument('--filename', help='filename for output (_interactingBosoncMERA)',type=str,default='_interactingBosoncMERA')
-    parser.add_argument('--verbosity', help='output verbosity of the program; choose an integer value {0,1,2,3,4} (1)',type=int,default=1)
+    parser.add_argument('--truncAfterFree', help='apply truncation after free propagation (True)',action='store_true')
+    parser.add_argument('--truncAfterInt', help='apply truncation after interacting propagation (True)',action='store_true')
     parser.add_argument('--loaddir', help='filename of the simulation to be loaded; the resumed simulation will be stored in filename (see above)',type=str)
     parser.add_argument('--parameterfile', help='read parameters from a given file; each line in the file has to contain the parameter name and its value seperated by a whitespace; values passed by file override values passed by command line',type=str)    
     parser.add_argument('--ending', help='suffix of the file names: Ql+args.ending, Rl+args.ending, lam+args.ending ',type=str)
@@ -665,8 +705,6 @@ if __name__ == "__main__":
     parser.add_argument('--measurestep', help='calculate observables ever measurestep; if 0, nothing is measured (0)',type=int,default=0)
     parser.add_argument('--measure', nargs='+',help='list of strings from {pipi,exact,dphidphi,density,psi,lams,tw}',type=str,default=[''])    
     parser.add_argument('--inter', help='interaction (0.0)',type=float,default=0.0)
-    parser.add_argument('--fullint', help='use fully interacting entangle',action='store_true')    
-    parser.add_argument('--ddint', help='use densitt-density interactions in entangler',action='store_true')    
     parser.add_argument('--keepcp', help='keep old checkpoint files of the simulation',action='store_true')
     parser.add_argument('--N1', help='number of points for calculating correlators at distances np.arange(N1**eps1 (10)',type=int,default=10)
     parser.add_argument('--N2', help='number of points for calculating correlators at distances eps1*N1+np.arange(N2)*eps2 (40000)',type=int,default=40000)
@@ -675,9 +713,10 @@ if __name__ == "__main__":
     parser.add_argument('--eps2', help='discretization for calculating correlators',type=float,default=1E-2)
     parser.add_argument('--eps3', help='discretization for calculating violation of wicks theorem',type=float,default=1E-2)        
 
-    
     args=parser.parse_args()
-
+    if args.info_cMERA:
+        help(cMERA)
+        sys.exit()
     observables=['pipi','dphidphi','lam','density','psi','tw','wick','exact']
     if args.parameterfile!=None:
         parameters=read_parameters(args.parameterfile)
@@ -733,11 +772,37 @@ if __name__ == "__main__":
     f.close()
         
     #store all initialization parameters in a dict()
-    init_params=dict(dtype=complex,cutoff=args.cutoff,delta=args.delta*1.0j,fullint=args.fullint,inter=args.inter,ddint=args.ddint,invrange=args.invrange,nwarmup=args.nwarmup,Dmax=args.Dmax)
+    init_params=dict(cutoff=args.cutoff,
+                     alpha=args.alpha,
+                     inter=args.inter,
+                     invrange=args.invrange,
+                     operators=args.operators,
+                     delta=args.delta*1.0j,
+                     nwarmup=args.nwarmup,
+                     Dmax=args.Dmax,
+                     dtype=complex)
+    
     #store all evolution parameters in a dict()
-    evolution_params=dict(delta=args.delta*1.0j,pinv=args.pinv,tol=args.tol,Dthresh=args.Dthresh,trunc=args.trunc,Dinc=args.Dinc,ncv=args.ncv,numeig=args.numeig,thresh=args.thresh)
+    if (not args.truncAfterInt) and (not args.truncAfterFree):
+        setattr(args,'truncAfterFree',True)
+    evolution_params=dict(cutoff=args.cutoff,
+                          alpha=args.alpha,
+                          inter=args.inter,
+                          invrange=args.invrange,
+                          operators=args.operators,
+                          delta=args.delta*1.0j,
+                          truncAfterFree=args.truncAfterFree,
+                          truncAfterInt=args.truncAfterInt,                          
+                          pinv=args.pinv,
+                          tol=args.tol,
+                          Dthresh=args.Dthresh,
+                          trunc=args.trunc,
+                          Dinc=args.Dinc,
+                          ncv=args.ncv,
+                          numeig=args.numeig,
+                          thresh=args.thresh)
+    
     cmera_sim=cMERA(**init_params)
-
     data_accumulator=dict(scale=[])
     last_stored=None
     for step in range(args.imax):
@@ -761,7 +826,7 @@ if __name__ == "__main__":
             if 'dphidphi' in args.measure:
                 data_accumulator=calculatedPhidPhiCorrelators(data_accumulator,cmera_sim)
             if ('exact' in args.measure):
-                data_accumulator=calculateExactCorrelators(data_accumulator,cmera_sim.scale,cmera_sim.cutoff)
+                data_accumulator=calculateExactCorrelators(data_accumulator,cmera_sim.scale,args.cutoff)
             if 'psi' in args.measure:
                 data_accumulator=calculatePsi(data_accumulator,cmera_sim)
             if 'density' in args.measure:
