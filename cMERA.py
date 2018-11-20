@@ -32,7 +32,7 @@ class cMERA(object):
                    prefactor of the free entangler, if None, alpha=cutoff/4 is used
                    the free entangler has the form 
                    K0=alpha\int dx dy exp(-cutoff*abs(x-y)) :pi(x)phi(y):
-                     =-1j*alpha/2\int dx dy exp(-cutoff*abs(x-y))*(psi(x)psi(y)-psi_dag(x)psi_dag(y))
+                     =-1j*alpha/2\int dx dy exp(-cutoff*abs(x-y))*(psi(x)psi(y)-psidag(x)psidag(y))
                    to obtain the correct entangler for the ground-state of free boson with cutoff, use alpha=cutoff/4 (default)
         inter:     float
                    the interaction strength of the entangler
@@ -43,7 +43,7 @@ class cMERA(object):
                    case 1: for operators = ['n','n'], the entangler is given by inter * \int dx dy n(x) n(y) exp(-invrange*abs(x-y))
                            if len(operators)==2, operators=['n','n'] is the only allowed choice
                    case 2: for operators = [o1,o2,o3,o4], the entangler is given by inter * \int dw dx dy dx o1(w) o2(x) o3(y) o4(z) exp(-invrange abs(w-z))
-                           if len(operators)==4, each element in operators can be one of the following :'phi','pi','psi','psi_dag'
+                           if len(operators)==4, each element in operators can be one of the following :'phi','pi','psi','psidag'
         delta:     complex 
                    the step-size of the evolution
         nwarmup:   int
@@ -91,7 +91,7 @@ class cMERA(object):
                    prefactor of the free entangler, if None, alpha=cutoff/4 is used
                    the free entangler has the form 
                    K0=alpha\int dx dy exp(-cutoff*abs(x-y)) :pi(x)phi(y):
-                     =-1j*alpha/2\int dx dy exp(-cutoff*abs(x-y))*(psi(x)psi(y)-psi_dag(x)psi_dag(y))
+                     =-1j*alpha/2\int dx dy exp(-cutoff*abs(x-y))*(psi(x)psi(y)-psidag(x)psidag(y))
                    to obtain the correct entangler for the ground-state of free boson with cutoff, use alpha=cutoff/4 (default)
         inter:     float
                    the interaction strength of the entangler
@@ -102,7 +102,7 @@ class cMERA(object):
                    case 1: for operators = ['n','n'], the entangler is given by inter * \int dx dy n(x) n(y) exp(-invrange*abs(x-y))
                            if len(operators)==2, operators=['n','n'] is the only allowed choice
                    case 2: for operators = [o1,o2,o3,o4], the entangler is given by inter * \int dw dx dy dx o1(w) o2(x) o3(y) o4(z) exp(-invrange abs(w-z))
-                           if len(operators)==4, each element in operators can be one of the following :'phi','pi','psi','psi_dag'
+                           if len(operators)==4, each element in operators can be one of the following :'phi','pi','psi','psidag'
         delta:    float
                   step-size;
                   propagators are constructed using delta
@@ -152,9 +152,9 @@ class cMERA(object):
                 self.Dmpoint=self.Gammaint[0][0].shape[0]
                 interactiontype='nn'
         elif len(operators)==4:
-            if not all([o in ('phi','pi','psi','psi_dag') for o in operators]):
+            if not all([o in ('phi','pi','psi','psidag') for o in operators]):
                 print()
-                raise ValueError("unknown operators {}. If len(operators)==4, each element in operators has to be one of ('phi','pi','psi','psi_dag')".format(np.array(operators)[[o not in ('phi','pi','psi','psi_dag') for o in operators]]))
+                raise ValueError("unknown operators {}. If len(operators)==4, each element in operators has to be one of ('phi','pi','psi','psidag')".format(np.array(operators)[[o not in ('phi','pi','psi','psidag') for o in operators]]))
             if abs(inter)>1E-10:
                 self.Gammaint=cmeralib.interactingEntanglingPropagator(cutoff=cutoff,invrange=invrange,delta=delta,inter=inter,operators=operators,dtype=self.dtype)
                 self.Dmpoint=self.Gammaint[0][0].shape[0]
@@ -385,7 +385,7 @@ def calculatePsiObservables(data_accumulator,cmera):
 
 def calculateDensityObservables(data_accumulator,cmera):
     """
-    calculates the observable <psi_dag psi> (particle density) using the cMPS tensors from cmera
+    calculates the observable <psidag psi> (particle density) using the cMPS tensors from cmera
     and stores it in data_accumulator
     Parameters:
     ----------------------
@@ -689,7 +689,7 @@ if __name__ == "__main__":
     parser.add_argument('--alpha', help='entangling strength; if not given, alpha=cutoff/4 (None)',type=float,default=None)    
     parser.add_argument('--invrange', help='inverse interctionrange (1.0)',type=float,default=1.0)    
     parser.add_argument('--pinv',help='pseudoinver cutoff (1E-20); if chosen too large, severe artifacts will show up',type=float,default=1E-20)
-    parser.add_argument('--operators', nargs='+',help="list of length 2 or 4 of str. \n for length 2: elements have to be  'n'; \n for length 4: use any of the following: ['pi','phi','psi','psi_dag']",type=str,default=['n','n'])
+    parser.add_argument('--operators', nargs='+',help="list of length 2 or 4 of str. \n for length 2: elements have to be  'n'; \n for length 4: use any of the following: ['pi','phi','psi','psidag']",type=str,default=['n','n'])
     parser.add_argument('--trunc',help='truncation threshold (1E-10); all schmidt-values below trunc will be discarded, irrespective of Dmax',type=float,default=1E-10)
     parser.add_argument('--Dthresh',help='truncation threshold at which the bond dimension is increased by Dinc (1E-6)',type=float,default=1E-6)    
     parser.add_argument('--thresh',help='threshold for "large-imaginary-eigenvalue" error (1E-10); dont worry about it',type=float,default=1E-10)        

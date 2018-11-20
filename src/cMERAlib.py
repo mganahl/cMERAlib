@@ -29,9 +29,9 @@ def checkWick(lam,Rl):
 
 def checkWickTheorem(Ql,Rl,r,dx,N):
     dens=np.trace(Rl.dot(r).dot(herm(Rl)))
-    cdag_c=cmf.calculateCorrelators(Ql,Rl,r,operators=['psi_dag','psi'],dx=dx,N=N)    
+    cdag_c=cmf.calculateCorrelators(Ql,Rl,r,operators=['psidag','psi'],dx=dx,N=N)    
     c_cdag=np.conj(cdag_c)
-    cdag_cdag=cmf.calculateCorrelators(Ql,Rl,r,operators=['psi_dag','psi_dag'],dx=dx,N=N)    
+    cdag_cdag=cmf.calculateCorrelators(Ql,Rl,r,operators=['psidag','psidag'],dx=dx,N=N)    
     c_c=np.conj(cdag_cdag)
     nn=cmf.calculateCorrelators(Ql,Rl,r,operators=['n','n'],dx=dx,N=N)        
     return nn-(cdag_cdag*c_c+dens**2+cdag_c*c_cdag)
@@ -40,45 +40,50 @@ def alpha(s,k):
     return np.sqrt((1+math.exp(2.0*s)*k**2)/(math.exp(2.0*s)*(1+k**2)))
     
 
-def FreeBosonPiPiCorrelatorExact(scale,t0=-1000,dt=0.001):
+def FreeBosonPiPiCorrelatorExact(scale,N=-1000,dx=0.001):
     """
     calculate the Pi-Pi correlation function at scale "scale",
     for a state obtained from evolving an initial product state with
     UV cutoff 1.0 to a scale "scale".
+
+    Parameters:
+    --------------
     scale: float
            the scale at which to calculate the correlator
+    t0:    int
+    dt:    float
     
     """
     #Discretize time t
-    t=np.arange(t0,-t0,dt)
+    t=np.arange(N,-N,dx)
     #Define function
     f=1.0-alpha(scale,t)
     #Compute Fourier transform by numpy's FFT function
     g=np.fft.fft(f)
-    #frequency normalization factor is 2*np.pi/dt
-    w = np.fft.fftfreq(f.size)*2*np.pi/dt
+    #frequency normalization factor is 2*np.pi/dx
+    w = np.fft.fftfreq(f.size)*2*np.pi/dx
     #In order to get a discretisation of the continuous Fourier transform
     #we need to multiply g by a phase factor
-    g*=dt*np.exp(-complex(0,1)*w*t0)/(4*math.pi)
+    g*=dx*np.exp(-complex(0,1)*w*N)/(4*math.pi)
     pipiexact=g[w>=0]
     xexact=w[w>=0]
     return xexact,pipiexact
 
 def FreeBosonPartialPhi_PartialPhiCorrelatorExact(steps,delta):
     #Discretize time t
-    t0=-1000.
-    dt=0.001
-    t=np.arange(t0,-t0,dt)
+    N=-1000.
+    dx=0.001
+    t=np.arange(N,-N,dx)
     #Define function
     s=np.abs(delta)*steps
     f=t**2/alpha(s,t)
     #Compute Fourier transform by numpy's FFT function
     g=np.fft.fft(f)
-    #frequency normalization factor is 2*np.pi/dt
-    w = np.fft.fftfreq(f.size)*2*np.pi/dt
+    #frequency normalization factor is 2*np.pi/dx
+    w = np.fft.fftfreq(f.size)*2*np.pi/dx
     #In order to get a discretisation of the continuous Fourier transform
     #we need to multiply g by a phase factor
-    g*=dt*np.exp(-complex(0,1)*w*t0)/(2*math.pi)
+    g*=dx*np.exp(-complex(0,1)*w*N)/(2*math.pi)
     partialphipartialphiexact=g[w>=0]
     xexact=w[w>=0]
     return xexact,partialphipartialphiexact
@@ -91,11 +96,14 @@ def createPropagatorMPO(mpo,delta):
     takes an input operator H in mpo-form and creates the first order porpagator using
     the time step delta
     Parameters:
+    ----------
     mpo:  np.ndarray of shape (M,M,d,d)
           input MPO representation of the operator H
     delta: float or complex
            time step
+
     Returns:
+    ----------
     np.ndarray of shape (M-1,M-1,d,d)
     the propagator exp(delta H) in mpo form
     """
@@ -125,6 +133,18 @@ def getcMPO(mpo,dx):
     takes a propagator mpo and a discretization parameter and returns a cmpo; note that even though 
     dx is finite, the result will be a true cmpo if the input mpo has been passed correctly
     note that Gamma[1][1] is set to be identically 0
+    Parameters:
+    ----------
+    mpo:  np.ndarray of shape (M-1,M-1,d,d)
+          input MPO representation of the propgator (e.g. exp(delta  H))
+    dx:   float or complex
+          discretization paramterer
+
+    Returns:
+    ----------
+    Gamma: list of length 2 of list of length 2 of np.ndarray
+    the cMPO representation of the propagator exp(delta H) in mpo form
+
     """
     M=mpo.shape[0]
     d=mpo.shape[2]    
@@ -147,10 +167,26 @@ def getcMPO(mpo,dx):
     
 def freeEntanglingPropagator(cutoff,delta,alpha=None,dtype=complex):
     """
-    conventions:
-    the implemented operator is  -1j*alpha/2\int dx dy exp(-cutoff*abs(x-y))*(psi(x)psi(y)-psi_dag(x)psi_dag(y))
+    Generate the mpo representation of the entangling evolution for a free scalar, massless boson
+    the implemented operator is  -1j*alpha/2\int dx dy exp(-cutoff*abs(x-y))*(psi(x)psi(y)-psidag(x)psidag(y))
     for alpha =cutoff/4, this gives the cMERA evolution operator for the free Boson theory with a UV-cutoff=cutoff; 
     the full prefactor is in this case -1j*cutoff/8
+
+    Parameters:
+    -----------------
+    cutoff:   float
+              UV cutoff (see description above)
+    delta:    float or complex
+              time step of the entangling evolution
+    alpha:    float or None
+              the strength of the entangler; if None, alpha=-1j*cutoff/8
+    dtype:    type float or type complex
+              data type 
+
+    Returns:
+    -----------------
+    Gamma: list of length 2 of list of length 2 of np.ndarray: 
+           the cMPO matrices of the entangling propagator
     """
     if alpha==None:
         alpha=cutoff/4.0
@@ -196,16 +232,16 @@ def interactingEntanglingPropagator(cutoff,invrange,delta,inter,operators=['phi'
     inter: float
            interaction strength
     operators: list of length 4 or 2 of str
-               each element in operators can be either of ['phi','pi','psi','psi_dag']
-               where 'phi', 'pi', 'psi' and 'psi_dag' are the usual field operators of a bosonic field theory
+               each element in operators can be either of ['phi','pi','psi','psidag']
+               where 'phi', 'pi', 'psi' and 'psidag' are the usual field operators of a bosonic field theory
               
     Returns:
     Gamma:a list of list containing the cMPO matrices of the propagator exp(delta K)
           note that Gamma[1][1] is 0!
     """
     dx=0.1
-    if not all([o in ('phi','pi','psi','psi_dag') for o in operators]):
-        raise ValueError("unknown operators {}. each element in operators has to be one of ('phi','pi','psi','psi_dag')".format(np.array(operators)[[o not in ('phi','pi','psi','psi_dag') for o in operators]]))
+    if not all([o in ('phi','pi','psi','psidag') for o in operators]):
+        raise ValueError("unknown operators {}. each element in operators has to be one of ('phi','pi','psi','psidag')".format(np.array(operators)[[o not in ('phi','pi','psi','psidag') for o in operators]]))
     
     c=np.zeros((2,2)).astype(dtype)
     c[0,1]=1.0    
@@ -216,7 +252,7 @@ def interactingEntanglingPropagator(cutoff,invrange,delta,inter,operators=['phi'
     ops['phi']=np.sqrt(dx)*(inter*24.0)**0.25*(c+herm(c))/np.sqrt(2*cutoff)
     ops['pi']=np.sqrt(dx)*(inter*24.0)**0.25*(c-herm(c))*np.sqrt(2*cutoff)/2.0j
     ops['psi']=np.sqrt(dx)*(inter*24.0)**0.25*c
-    ops['psi_dag']=np.sqrt(dx)*(inter*24.0)**0.25*herm(c)
+    ops['psidag']=np.sqrt(dx)*(inter*24.0)**0.25*herm(c)
 
 
         

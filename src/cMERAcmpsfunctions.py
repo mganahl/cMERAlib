@@ -577,7 +577,7 @@ def calculateRelativisticCorrelators(Ql,Rl,r,cutoff,operators,dx,N,initial=None)
                enters definition of phi and pi via
                psi=sqrt(cutoff/2)phi +1/sqrt(2*cutoff)pi
     operators: list of length 2 of str
-               each element in operators can be either of ['psi','psi_dag','n']
+               each element in operators can be either of ['psi','psidag','n']
     dx:        float
                space increment, used to calculate the correlation at psi*(0)psi(n*dx)
     N:         int
@@ -649,7 +649,7 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
     r:         np.ndarray of shape (D,D)
                right reduced density matrix (i.e. right dominant eigenvector of the cMPS transfer operator)
     operators: list of length 2 of str
-               each element in operators can be either of ['psi','psi_dag','n']
+               each element in operators can be either of 'psi' or 'p','psidag' or 'pd','n'
     dx:        float
                space increment, used to calculate the correlation at psi*(0)psi(n*dx)
     N:         int
@@ -663,21 +663,35 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
     
     D=np.shape(Ql)[0]
     corr=np.zeros(N,dtype=type(Ql[0,0]))
-    if operators[0]=='psi_dag':
+    if operators[0] in ('psidag','pd'):
         vec=np.reshape(np.conj(Rl),D*D)
-    elif operators[0]=='psi':
+    elif operators[0] in ('psidag_psidag','pd_pd'):
+        vec=np.reshape(np.conj(Rl.dot(Rl)),D*D)
+    elif operators[0] in ('psi','p'):        
         vec=np.reshape(np.transpose(Rl),D*D)
-    elif operators[0]=='n':
+    elif operators[0] in ('psi_psi','p_p'):
+        vec=np.reshape(np.transpose(Rl.dot(Rl)),D*D)
+    elif operators[0] in ('n','pd_p','psidagger_psi'):
         vec=np.reshape(np.transpose(herm(Rl).dot(Rl)),D*D)
+    elif operators[0] in ('p_pd','psi_psidagger'):
+        raise ValueError('the requested operator psi_psidagger at position 0 has no finite expectation value')
+        
     else:
         raise ValueError("unknown operator {0}".format(operators[0]))
     
-    if operators[1]=='psi':        
-        rdens=np.tensordot(Rl,r,([1],[0]))
-    elif operators[1]=='psi_dag':        
+    if operators[1] in ('psidag','pd'):
         rdens=np.tensordot(r,np.conj(Rl),([1],[1]))
-    elif operators[1]=='n':
+    elif operators[1] in ('psidag_psidag','pd_pd'):
+        rdens=np.tensordot(r,np.conj(Rl.dot(Rl)),([1],[1]))
+    elif operators[1] in ('psi','p'):
+        rdens=np.tensordot(Rl,r,([1],[0]))
+    elif operators[1] in ('psi_psi','p_p'):
+        rdens=np.tensordot(Rl.dot(Rl),r,([1],[0]))
+    elif operators[1] in ('n','pd_p','psidagger_psi'):
         rdens=np.tensordot(np.tensordot(Rl,r,([1],[0])),np.conj(Rl),([1],[1]))
+    elif operators[1] in ('p_pd','psi_psidagger'):
+        raise ValueError('the requested operator psi_psidagger at position x has no finite expectation value')
+        
     else:
         raise ValueError("unknown operator {0}".format(operators[1]))
         
