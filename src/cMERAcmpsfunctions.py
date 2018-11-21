@@ -16,6 +16,61 @@ phiovereps=lambda dx,eta:  -1./2.*eta + 3./8. *dx*eta**2 - 5./16. *dx**2*eta**3 
             6435./32768. *dx**7*eta**8 - 12155./65536. *dx**8*eta**9 +46189./262144. *dx**9*eta**10 - 88179./524288. *dx**10*eta**11 + 676039./4194304. *dx**11*eta**12
 
 
+def toMPS(Q,R,dx):
+    """
+    turn cMPS matrices Q,R into a mps matrix with 
+    discretization parameter dx
+
+    Parameters:
+    ------------------
+    Q    np.ndarray of shape (D,D)
+         cmps matrix Q
+    R    list of np.ndarray of shape (D,D)
+         cmps matrices R
+    dx:  float
+         discretization parameter
+    Returns:
+    -----------------
+    np.ndarray of shape (D,D,len(R))
+
+    """
+    
+    if not (np.shape(Q)[0]==np.shape(Q)[1]):
+        raise ValueError("Q matrix has to be square")
+    if not (np.shape(R)[0]==np.shape(R)[1]):
+        raise ValueError("R matrix has to be square")
+    
+    D=np.shape(Q)[0]
+    matrix=np.zeros((D,D,len(R)+1)).astype(np.result_type(Q,*R))
+    matrix[:,:,0]=np.eye(D)+dx*Q
+    for n in range(len(R)):
+        matrix[:,:,n+1]=np.sqrt(dx)*R[n]
+    return matrix
+
+def fromMPS(tensor,dx):
+    """
+    return the cMPS content of an mps tensor tensor
+    Parameters:
+    ------------
+    tensor:  np.ndarray of shape (D,D,d)
+             an mps tensor
+    dx:      float
+             discretization parameter
+    Returns:
+    -----------
+    (Q,R)
+    Q:   np.ndarray of shape (D,D)
+         the cMPS Q matrix
+    R:   list of length d of np.ndarray of shape (D,D)
+         the cMPS R matrices
+    """
+    if tensor.shape[0]!=tensor.shape[1]:
+        raise ValueError("mps tensor has to be square")
+    
+    D=tensor.shape[0]
+    Q=np.copy((tensor[:,:,0]-np.eye(D))/dx)
+    R=[np.copy(tensor[:,:,n]/np.sqrt(dx)) for n in range(1,tensor.shape[2])]
+    return Q,R
 
 
 def svd(mat,full_matrices=False,compute_uv=True,r_thresh=1E-14):
@@ -77,6 +132,28 @@ def qr(mat,signfix):
         unit=np.diag(sign)
         return q.dot(herm(unit)),unit.dot(r)
 
+def check_gauge(Q,R,gauge,thresh=1E-10,verbose=0):
+    """
+    checks if tensor obeys left or right orthogonalization;
+    Parameters:
+    ---------------
+    Q:       np.ndarray of shape (D,D)
+             an cMPS Q matrix
+    R:       list of np.ndarray of shape (D,D)
+             cMPS R matrices
+    gauge:   int or str
+             the gauge to be checked against: gauge can be in (1,'l','left') or (-1,'r','right')
+             to check left or right orthogonality, respectively
+    
+    Returns: 
+    ----------------
+    a float giving the total deviation from orthonormality, i.e. ||(11|E-11|| or || E|11) -11||
+    """
+    
+    Z=np.linalg.norm(transferOperator(Q,R,gauge,np.eye(Q.shape[0])))
+    if (Z>thresh) and (verbose>0):
+        print('check_gauge: cMPS is not {0} orthogonal with a residual of {1}'.format(gauge,Z) )
+    return Z
 
 def transferOperator(Q,R,direction,vector):
     """
@@ -85,7 +162,7 @@ def transferOperator(Q,R,direction,vector):
     ------------------
     Q:           np.ndarray of shape (D,D)
                  the Q-matrix of the cMPS
-    R:           list() of np.ndarray() of shape (D,D)
+    R:           list of np.ndarray() of shape (D,D)
                  the R-matrices of the cMPS
     direction:   int
                  if direction in {1,'l','left'}: calculate the left-action
@@ -703,3 +780,38 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
         corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
     return corr
 
+
+def calculateRenyiEntropy(Q,R,init,N,dx,alpha,eps=1E-8,Dmax=50,tol=1E-10):
+    """
+    calculate the Renyi entropies of  finite regions of length n*dx for n in range(N)
+    """
+    D=np.shape(Q)[0]
+    #lam,Ql,Rl,Qr,Rr=regauge_old(Q,R,dx,gauge='symmetric',linitial=np.reshape(lamold,D*D),rinitial=np.reshape(np.eye(D),D*D),nmaxit=100000,tol=regaugetol)
+    lam,Ql,Rl,Qr,Qr=canonize(Q,R,linit=init,rinit=init,maxiter=100000,tol=1E-10,ncv=40,numeig=6,pinv=1E-200,trunc=1E-16,Dmax=Q.shape[0],thresh=1E-10,verbosity=0,**kwargs)    
+
+    etas=[]
+    S=[]
+    B=dcmps.toMPSmat(Qr,Rr,dx)
+    ltensor=np.tensordot(np.diag(lam),B,([1],[0]))
+    [D1r,D2r,dr]=np.shape(B)
+    reachedmax=False
+    for n in range(N):
+        [D1l,D2l,dl]=np.shape(ltensor)
+        mpsadd1=np.tensordot(ltensor,B,([1],[0])) #index ordering  0 T T 2
+                                                  #                  1 3
+        rho=np.reshape(np.tensordot(mpsadd1,np.conj(mpsadd1),([0,2],[0,2])),(dl*dr,dl*dr))   #  0  1
+        eta,u=np.linalg.eigh(rho)
+        inds=np.nonzero(eta>eps)
+        indarray=np.array(inds[0])
+        if len(indarray)<=Dmax:
+            eta=eta[indarray]
+        elif len(indarray)>Dmax:
+            while len(indarray)>Dmax:
+                indarray=np.copy(indarray[1::])
+            eta=eta[indarray]
+        etas.append(eta)
+        R.append(1.0/(1.0-alpha)*np.log(np.sum(eta**alpha)))
+        u_=u[:,indarray]
+        utens=np.reshape(u_,(dl,dr,len(eta)))
+        ltensor=np.tensordot(mpsadd1,np.conj(utens),([1,3],[0,1]))
+    return etas,R
