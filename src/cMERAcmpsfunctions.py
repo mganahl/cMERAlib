@@ -732,9 +732,12 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
                "p" and "pd" are normal ordered such that all "pd" appear before any "p"
 
                Example:
-               operators[0]=p_pd_p
-               operators[1]=p_pd_p_p
+               operators[0]='p_pd_p'
+               operators[1]='p_pd_p_p'
                calculates the correlation function <psidagger(0)psi(0)psi(0)psidagger(x)psi(x)psi(x)psi(x)>
+
+               Note that operators within each string are always automatically converted to normal ordering 
+               within the function, i.e. 'p_p_pd_p_pd' -> 'pd_pd_p_p_p'
      
     dx:        float
                space increment, used to calculate the correlation at psi*(0)psi(n*dx)
