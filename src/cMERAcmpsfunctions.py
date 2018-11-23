@@ -323,7 +323,7 @@ def TMeigs(Q,R,direction,numeig=6,init=None,maxiter=100000,tol=1e-12,ncv=40,whic
     dtype=np.result_type(Q,*R)
     mv=fct.partial(transferOperator,*[Q,R,direction])
     LOP=LinearOperator((D*D,D*D),matvec=mv,rmatvec=None,matmat=None,dtype=dtype)
-    if init==None:
+    if np.any(init==None):
         v0=None
     else:
         v0=np.reshape(init,D*D)
