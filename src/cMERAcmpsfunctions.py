@@ -726,7 +726,16 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
     r:         np.ndarray of shape (D,D)
                right reduced density matrix (i.e. right dominant eigenvector of the cMPS transfer operator)
     operators: list of length 2 of str
-               each element in operators can be either of 'psi' or 'p','psidag' or 'pd','n'
+               each element in operators has to be a "_" or " " seperated string of "p" and "pd" characters,
+               for example p_p_pd_p_pd. "p" is short for psi, "pd" is short for psidagger.
+               operators[0] encodes the operators to be applied at position 0 of the correlation function.
+               "p" and "pd" are normal ordered such that all "pd" appear before any "p"
+
+               Example:
+               operators[0]=p_pd_p
+               operators[1]=p_pd_p_p
+               calculates the correlation function <psidagger(0)psi(0)psi(0)psidagger(x)psi(x)psi(x)psi(x)>
+     
     dx:        float
                space increment, used to calculate the correlation at psi*(0)psi(n*dx)
     N:         int
@@ -736,42 +745,51 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
     -----------------
     np.ndarray of shape (N,)
     the correlator
+
+    Raises:
+    ----------------
+    ValueError if any other characters than "p" or "pd" are passed
     """
+    op_0=sorted(operators[0].replace('_',' ').split(),key=lambda x: int(not x=='pd')) #orders the list such that op_0 contains all 'pd' before all 'p'
+    op_1=sorted(operators[1].replace('_',' ').split(),key=lambda x: int(not x=='pd')) #orders the list such that op_1 contains all 'pd' before all 'p'
+    if not all([x in ('p','pd') for x in op_0]):
+        op_0_ar=np.array(op_0)
+        raise ValueError("unknown operators {0} in operators[0]".format(op_0_ar[(op_0_ar!='p')&(op_0_ar!='pd')]))    
+    if not all([x in ('p','pd') for x in op_1]):
+        op_1_ar=np.array(op_1)        
+        raise ValueError("unknown operators {0} in operators[1]".format(op_1_ar[(op_1_ar!='p')&(op_1_ar!='pd')]))    
+
+    if len(op_0)==0:
+        raise ValueError("no valid operators are given in operators[0]")
+    if len(op_1)==0:
+        raise ValueError("no valid operators are given in operators[1]")
+
     
-    D=np.shape(Ql)[0]
+    D=np.shape(Ql)[0]        
+    Rupper=np.eye(D)
+    Rlower=np.eye(D)
+    n=0
+    while (n<len(op_0)) and (op_0[n]=='pd'):
+        Rlower=Rlower.dot(Rl)
+        n+=1
+    while (n<len(op_0)) and (op_0[n]=='p'):
+        Rupper=Rupper.dot(Rl)
+        n+=1
+
+    vec=np.reshape(np.transpose(herm(Rlower).dot(Rupper)),D*D)        
+
+    Rupper=np.eye(D)
+    Rlower=np.eye(D)
+    n=0
+    while (n<len(op_1)) and (op_1[n]=='pd'):
+        Rlower=Rlower.dot(Rl)
+        n+=1
+    while (n<len(op_1)) and (op_1[n]=='p'):
+        Rupper=Rupper.dot(Rl)
+        n+=1
+    rdens=Rupper.dot(r).dot(herm(Rlower))
+
     corr=np.zeros(N,dtype=type(Ql[0,0]))
-    if operators[0] in ('psidag','pd'):
-        vec=np.reshape(np.conj(Rl),D*D)
-    elif operators[0] in ('psidag_psidag','pd_pd'):
-        vec=np.reshape(np.conj(Rl.dot(Rl)),D*D)
-    elif operators[0] in ('psi','p'):        
-        vec=np.reshape(np.transpose(Rl),D*D)
-    elif operators[0] in ('psi_psi','p_p'):
-        vec=np.reshape(np.transpose(Rl.dot(Rl)),D*D)
-    elif operators[0] in ('n','pd_p','psidagger_psi'):
-        vec=np.reshape(np.transpose(herm(Rl).dot(Rl)),D*D)
-    elif operators[0] in ('p_pd','psi_psidagger'):
-        raise ValueError('the requested operator psi_psidagger at position 0 has no finite expectation value')
-        
-    else:
-        raise ValueError("unknown operator {0}".format(operators[0]))
-    
-    if operators[1] in ('psidag','pd'):
-        rdens=np.tensordot(r,np.conj(Rl),([1],[1]))
-    elif operators[1] in ('psidag_psidag','pd_pd'):
-        rdens=np.tensordot(r,np.conj(Rl.dot(Rl)),([1],[1]))
-    elif operators[1] in ('psi','p'):
-        rdens=np.tensordot(Rl,r,([1],[0]))
-    elif operators[1] in ('psi_psi','p_p'):
-        rdens=np.tensordot(Rl.dot(Rl),r,([1],[0]))
-    elif operators[1] in ('n','pd_p','psidagger_psi'):
-        rdens=np.tensordot(np.tensordot(Rl,r,([1],[0])),np.conj(Rl),([1],[1]))
-    elif operators[1] in ('p_pd','psi_psidagger'):
-        raise ValueError('the requested operator psi_psidagger at position x has no finite expectation value')
-        
-    else:
-        raise ValueError("unknown operator {0}".format(operators[1]))
-        
     for n in range(N):
         if n%1000==0:
             stdout.write("\r %i/%i" %( n,N))
