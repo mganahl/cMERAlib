@@ -5,6 +5,7 @@ import os,sys,select
 import datetime
 import src.cMERAcmpsfunctions as cmf
 import src.cMERAlib as cmeralib
+import src.utils as utils
 import matplotlib.pyplot as plt
 import math
 import argparse
@@ -444,57 +445,6 @@ def checkWicksTheorem(data_accumulator,cmera,N=20000,eps=0.01):
         data_accumulator['wick_theorem'].append(wick)
     return data_accumulator
 
-def convert(val):
-
-    """
-    converts an input str() val into its numeric type
-    see the conversion rules below
-    
-    """
-    if val=='True':
-        return True
-    elif val=='False':
-        return False
-    elif val=='None':
-        return None
-    else:
-        types=[int,float,str]
-    for t in types:
-        try:
-            return t(val)
-        except ValueError:
-            pass
-        
-def read_parameters(filename):
-    """
-    read parameters from a file "filename"
-    the file format is assumed to be 
-
-    parameter1 value1
-    parameter2 value2
-        .
-        .
-        .
-
-    or 
-
-    parameter1: value1
-    parameter2: value2
-
-    Returns:
-    python dict() containing mapping parameter-name to its value
-    """
-    
-    params={}
-    with open(filename, 'r') as f:
-        for line in f:
-            if '[' not in line:
-                params[line.replace(':','').split()[0]]=convert(line.replace(':','').split()[1])
-            else:
-                s=re.sub('[\[\]:,\']','',line).split()
-                params[s[0]]=[convert(t) for t in s[1::]]
-    return params
-
 
 
 def plot(data_accumulator,title='',which=('pipi','dphidphi','lam','density','psi','tw','wick')):
@@ -741,7 +691,7 @@ if __name__ == "__main__":
         sys.exit()
     observables=['pipi','dphidphi','lam','density','psi','tw','wick','exact']
     if args.parameterfile!=None:
-        parameters=read_parameters(args.parameterfile)
+        parameters=utils.read_parameters(args.parameterfile)
         for k,v in parameters.items():
             if (k!='parameterfile') and (k!='filename'):#read all parameters except filename and parameterfile
                 setattr(args,k,v)
