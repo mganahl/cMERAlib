@@ -1,3 +1,4 @@
+import re
 
 
 def convert(val):
@@ -42,6 +43,7 @@ def read_parameters(filename):
     """
     
     params={}
+    print(filename)
     with open(filename, 'r') as f:
         for line in f:
             if '[' not in line:

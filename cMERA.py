@@ -47,9 +47,9 @@ class cMERA(object):
         delta:     complex 
                    the step-size of the evolution
         nwarmup:   int
-                   number of warmups steps
+                   number of warmup steps; during warmup, no truncation is done
         Dmax:      int
-                   maximum bond dimension
+                   maximally allowed bond dimension
         dtype:     type float or type complex (complex)
                    the data type of the cMERA/cMPS matrices
 
@@ -541,7 +541,7 @@ def plot(data_accumulator,title='',which=('pipi','dphidphi','lam','density','psi
         except KeyError:
             pass
         
-    if 'dphidphi' in which:
+    if ('dphidphi' in which) or ('dxphidxphi' in which):
         try:
             plt.figure(2)
             plt.clf()
@@ -581,7 +581,7 @@ def plot(data_accumulator,title='',which=('pipi','dphidphi','lam','density','psi
         except KeyError:
             pass
 
-    if 'density' in which:
+    if ('density' in which) or ('n' in which):
         try:
             plt.figure(4)
             plt.clf()
@@ -665,8 +665,8 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint', help='save the simulation every checkpoint iterations for checkpointing (100)',type=int,default=100)
     parser.add_argument('--resume_checkpoint', help='load a checkpointed file and resume simulation',type=str)
     parser.add_argument('--filename', help='filename for output (_interactingBosoncMERA)',type=str,default='_interactingBosoncMERA')
-    parser.add_argument('--noTruncAfterFree', help='apply truncation after free propagation (True)',action='store_true')
-    parser.add_argument('--noTruncAfterInt', help='apply truncation after interacting propagation (True)',action='store_true')
+    parser.add_argument('--noTruncAfterFree', help='do not truncate after free propagation (False)',action='store_true')
+    parser.add_argument('--noTruncAfterInt', help='do not truncate after interacting propagation (False)',action='store_true')
     parser.add_argument('--loaddir', help='filename of the simulation to be loaded; the resumed simulation will be stored in filename (see above)',type=str)
     parser.add_argument('--parameterfile', help='read parameters from a given file; each line in the file has to contain the parameter name and its value seperated by a whitespace; values passed by file override values passed by command line',type=str)    
     #parser.add_argument('--ending', help='suffix of the file names: Ql+args.ending, Rl+args.ending, lam+args.ending ',type=str)
@@ -674,7 +674,7 @@ if __name__ == "__main__":
     parser.add_argument('--ncv', help='number of krylov vectors in TMeigs (40)',type=int,default=40)
     parser.add_argument('--show_plots', nargs='+',help='list of strings from {pipi,exact,dphidphi,density,psi,lams,tw}',type=str,default=[''])
     parser.add_argument('--measurestep', help='calculate observables ever measurestep; if 0, nothing is measured (0)',type=int,default=0)
-    parser.add_argument('--measure', nargs='+',help='list of strings from {pipi,exact,dphidphi,density,psi,lams,tw}',type=str,default=[''])    
+    parser.add_argument('--measure', nargs='+',help='list of strings from {pipi,exact,dxphidxphi,dphidphi,density,n,psi,lams,tw}, where n=density and dphidphi=dxphidxphi',type=str,default=[''])    
     parser.add_argument('--inter', help='interaction (0.0)',type=float,default=0.0)
     parser.add_argument('--keepcp', help='keep old checkpoint files of the simulation',action='store_true')
     parser.add_argument('--N1', help='number of points for calculating correlators at distances np.arange(N1**eps1 (10)',type=int,default=10)
@@ -689,7 +689,7 @@ if __name__ == "__main__":
     if args.info_cMERA:
         help(cMERA)
         sys.exit()
-    observables=['pipi','dphidphi','lam','density','psi','tw','wick','exact']
+    observables=['pipi','dxphidxphi','dphidphi','lam','density','n','psi','tw','wick','exact']
     if args.parameterfile!=None:
         parameters=utils.read_parameters(args.parameterfile)
         for k,v in parameters.items():
@@ -793,13 +793,13 @@ if __name__ == "__main__":
         if (args.measurestep!=0) and (cmera_sim.iteration%args.measurestep==0):
             if 'pipi' in args.measure:
                 data_accumulator=calculatePiPiCorrelators(data_accumulator,cmera_sim)
-            if 'dphidphi' in args.measure:
+            if ('dphidphi' in args.measure) or ('dxphidxphi' in args.measure):
                 data_accumulator=calculatedPhidPhiCorrelators(data_accumulator,cmera_sim)
             if ('exact' in args.measure):
                 data_accumulator=calculateExactCorrelators(data_accumulator,cmera_sim.scale,args.cutoff)
             if 'psi' in args.measure:
                 data_accumulator=calculatePsi(data_accumulator,cmera_sim)
-            if 'density' in args.measure:
+            if ('density' in args.measure) or ('n' in args.measure):
                 data_accumulator=calculateDensityObservables(data_accumulator,cmera_sim)
             if ('lams' in args.measure) or ('tw' in args.measure):                                
                 data_accumulator=cmera_sim.addMonitoringVariables(data_accumulator)
