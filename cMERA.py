@@ -13,7 +13,6 @@ import re
 comm=lambda x,y:np.dot(x,y)-np.dot(y,x)
 anticomm=lambda x,y:np.dot(x,y)+np.dot(y,x)
 herm=lambda x:np.conj(np.transpose(x))
-
 class cMERA(object):
     """
     a class for simulating a cMERA evolution
@@ -62,8 +61,8 @@ class cMERA(object):
         self.cutoff=cutoff
         self.Ql=np.ones((1,1)).astype(self.dtype)
         self.Rl=np.zeros((1,1)).astype(self.dtype)
-        self.lam=np.array([1.0])
-        self.D=len(self.lam)
+        self._lam=np.array([1.0])
+        self.D=len(self._lam)
         self.truncated_weight=0.0
         self.Gamma=cmeralib.freeEntanglingPropagator(cutoff=cutoff,delta=delta,alpha=alpha)
 
@@ -164,7 +163,7 @@ class cMERA(object):
         self.Gamma=cmeralib.freeEntanglingPropagator(cutoff=cutoff,delta=delta,alpha=alpha)
         self.Dmpo=self.Gamma[0][0].shape[0]
         
-        if (self.truncated_weight>Dthresh) and (self.D<self.Dmax) and (len(self.lam)==self.D):
+        if (self.truncated_weight>Dthresh) and (self.D<self.Dmax) and (len(self._lam)==self.D):
             self.D+=Dinc
             
         if (alpha==None) or (np.abs(alpha)>1E-10):
@@ -172,33 +171,46 @@ class cMERA(object):
             self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gamma[0][1])+np.kron(self.Rl,np.eye(self.Dmpo))
             if truncAfterFree:
                 try:                
-                    self.lam,self.Ql,self.Rl,Qrtens,Rrtens,rest1=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
+                    self._lam,self.Ql,self.Rl,Qrtens,Rrtens,rest1=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
                                                                               ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=self.D,verbosity=0)
                     self.truncated_weight=np.sum(rest1)
                     self.Rl=self.Rl[0]
                 except TypeError:
                     pass
-                
         if np.abs(inter)>1E-10:
             self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gammaint[0][0])+np.kron(self.Ql,np.eye(self.Dmpoint))
             if interactiontype=='nn':
                 self.Rl=np.kron(self.Rl,self.Gammaint[1][1])
             elif interactiontype=='oooo':                
                 self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gammaint[0][1])+np.kron(self.Rl,np.eye(self.Dmpoint))
-            if truncAfterInt:                
+            if truncAfterInt:
                 try:
-                    self.lam,self.Ql,self.Rl,Qrtens,Rrtens,rest2=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
+                    self._lam,self.Ql,self.Rl,Qrtens,Rrtens,rest2=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
                                                                               ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=self.D,verbosity=0)
+
                     self.truncated_weight+=np.sum(rest2)            
                     self.Rl=self.Rl[0]
                 except TypeError:
                     pass
-            
         self.Ql*=np.exp(-np.imag(delta))
         self.Rl*=np.exp(-np.imag(delta)/2.0)
         self.scale+=np.abs(delta)
         self.iteration+=1        
-        
+
+    @property
+    def lam(self):
+        if self._lam.shape[0]!=self.Ql.shape[0]:
+            if len(self._lam)>3:
+                self._lam,self.Ql,self.Rl,Qrtens,Rrtens,rest1=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=1E-12,\
+                                                                           ncv=min(40,self.Ql.shape[0]),numeig=6,pinv=1E-200,thresh=1E-8,trunc=1E-12,Dmax=self.D,verbosity=0)
+                self.Rl=self.Rl[0]
+            else:
+                pass
+        return self._lam
+    @lam.setter
+    def lam(self,val):
+        self._lam=val
+            
     def save(self,filename):
         """
         dump the cMERA instance into a pickle file "filename".pickle
@@ -252,7 +264,6 @@ class cMERA(object):
         else:
             data_accumulator['D'].append(len(self.lam))
         return data_accumulator
-
     
 def calculateExactCorrelators(data_accumulator,scale,cutoff):
     """
@@ -295,11 +306,14 @@ def calculatePiPiCorrelators(data_accumulator,cmera,N1=10,N2=40000,eps1=1E-4,eps
     data_accumulator: dict()
                       see above
     """
-    
+    lamtens=cmera.lam    
     Qltens=cmera.Ql
     Rltens=cmera.Rl
-    lamtens=cmera.lam
 
+    #if lamtens.shape[0]!=Qltens.shape[0]:
+    #    lamtens,Qltens,Rltens,Qrtens,Rrtens,rest1=cmf.canonize(cmera.Ql,[cmera.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
+    #                                                           ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=cmera.D,verbosity=0)
+        
     x=np.append(np.arange(1,N1+1)*eps1,np.arange(2,N2+1)*eps2)
     pipi1,vec1=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=['pi','pi'],dx=eps1,N=N1,initial=None)
     pipi2,vec2=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=['pi','pi'],dx=eps2,N=N2,initial=vec1)
@@ -334,14 +348,17 @@ def calculatedPhidPhiCorrelators(data_accumulator,cmera,N1=10,N2=40000,eps1=1E-4
                       see above
 
     """
-    
+    lamtens=cmera.lam    
     Qltens=cmera.Ql
     Rltens=cmera.Rl
-    lamtens=cmera.lam
+
+    #if lamtens.shape[0]!=Qltens.shape[0]:
+    #    lamtens,Qltens,Rltens,Qrtens,Rrtens,rest1=cmf.canonize(cmera.Ql,[cmera.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
+    #                                                           ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=cmera.D,verbosity=0)
 
     x=np.append(np.arange(1,N1+1)*eps1,np.arange(2,N2+1)*eps2)
-    dxphidxphi1,vec1=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=['p_phi','p_phi'],dx=eps1,N=N1,initial=None)
-    dxphidxphi2,vec2=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=['p_phi','p_phi'],dx=eps2,N=N2,initial=vec1)
+    dxphidxphi1,vec1=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=['dxphi','dxphi'],dx=eps1,N=N1,initial=None)
+    dxphidxphi2,vec2=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=['dxphi','dxphi'],dx=eps2,N=N2,initial=vec1)
     #dxphidxphi1,vec1=cmf.dxPhidxPhiCorr(Qltens,Rltens,np.diag(lamtens**2),eps1,N1,cmera.cutoff,initial=None)
     #dxphidxphi2,vec2=cmf.dxPhidxPhiCorr(Qltens,Rltens,np.diag(lamtens**2),eps2,N2,cmera.cutoff,initial=vec1)
     dxphidxphi=np.append(dxphidxphi1,dxphidxphi2[1::])
@@ -370,10 +387,10 @@ def calculatePsiObservables(data_accumulator,cmera):
                       see above
 
     """
-    
+    lamtens=cmera.lam    
     Qltens=cmera.Ql
     Rltens=cmera.Rl
-    lamtens=cmera.lam
+
     
     psi=np.trace(Rltens.dot(np.diag(lamtens)).dot(np.diag(lamtens)))
     
@@ -401,23 +418,23 @@ def calculateDensityObservables(data_accumulator,cmera):
 
     """
     
-    Qltens=cmera.Ql
-    Rltens=cmera.Rl
+
     lamtens=cmera.lam
-    
+    Qltens=cmera.Ql
+    Rltens=cmera.Rl    
+
     dens=np.trace(Rltens.dot(np.diag(lamtens)).dot(np.diag(lamtens)).dot(herm(Rltens)))
     
     if 'density' not in data_accumulator:
         data_accumulator['density']=[dens]
     else:
         data_accumulator['density'].append(dens)        
-        data_accumulator['psi'].append(psi)        
     return data_accumulator
 
 def checkWicksTheorem(data_accumulator,cmera,N=20000,eps=0.01):
-    Qltens=cmera.Ql
-    Rltens=cmera.Rl
     lamtens=cmera.lam
+    Qltens=cmera.Ql
+    Rltens=cmera.Rl    
     
     x=np.arange(1,N+1)*eps
     wick=cmeralib.checkWickTheorem(Qltens,Rltens,np.diag(lamtens**2),eps,N)
@@ -689,7 +706,7 @@ if __name__ == "__main__":
     parser.add_argument('--alpha', help='entangling strength; if not given, alpha=cutoff/4 (None)',type=float,default=None)    
     parser.add_argument('--invrange', help='inverse interctionrange (1.0)',type=float,default=1.0)    
     parser.add_argument('--pinv',help='pseudoinver cutoff (1E-20); if chosen too large, severe artifacts will show up',type=float,default=1E-20)
-    parser.add_argument('--operators', nargs='+',help="list of length 2 or 4 of str. \n for length 2: elements have to be  'n'; \n for length 4: use any of the following: ['pi','phi','psi','psidag']",type=str,default=['n','n'])
+    parser.add_argument('--operators', nargs='+',help="entangling operators; list of length 2 or 4 of str. \n for length 2: elements have to be  'n'; \n for length 4: use any of the following: ['pi','phi','psi','psidag']",type=str,default=['n','n'])
     parser.add_argument('--trunc',help='truncation threshold (1E-10); all schmidt-values below trunc will be discarded, irrespective of Dmax',type=float,default=1E-10)
     parser.add_argument('--Dthresh',help='truncation threshold at which the bond dimension is increased by Dinc (1E-6)',type=float,default=1E-6)    
     parser.add_argument('--thresh',help='threshold for "large-imaginary-eigenvalue" error (1E-10); dont worry about it',type=float,default=1E-10)        
@@ -698,11 +715,11 @@ if __name__ == "__main__":
     parser.add_argument('--checkpoint', help='save the simulation every checkpoint iterations for checkpointing (100)',type=int,default=100)
     parser.add_argument('--resume_checkpoint', help='load a checkpointed file and resume simulation',type=str)
     parser.add_argument('--filename', help='filename for output (_interactingBosoncMERA)',type=str,default='_interactingBosoncMERA')
-    parser.add_argument('--truncAfterFree', help='apply truncation after free propagation (True)',action='store_true')
-    parser.add_argument('--truncAfterInt', help='apply truncation after interacting propagation (True)',action='store_true')
+    parser.add_argument('--noTruncAfterFree', help='apply truncation after free propagation (True)',action='store_true')
+    parser.add_argument('--noTruncAfterInt', help='apply truncation after interacting propagation (True)',action='store_true')
     parser.add_argument('--loaddir', help='filename of the simulation to be loaded; the resumed simulation will be stored in filename (see above)',type=str)
     parser.add_argument('--parameterfile', help='read parameters from a given file; each line in the file has to contain the parameter name and its value seperated by a whitespace; values passed by file override values passed by command line',type=str)    
-    parser.add_argument('--ending', help='suffix of the file names: Ql+args.ending, Rl+args.ending, lam+args.ending ',type=str)
+    #parser.add_argument('--ending', help='suffix of the file names: Ql+args.ending, Rl+args.ending, lam+args.ending ',type=str)
     parser.add_argument('--numeig', help='number of eigenvector in TMeigs (5)',type=int,default=5)
     parser.add_argument('--ncv', help='number of krylov vectors in TMeigs (40)',type=int,default=40)
     parser.add_argument('--show_plots', nargs='+',help='list of strings from {pipi,exact,dphidphi,density,psi,lams,tw}',type=str,default=[''])
@@ -718,6 +735,7 @@ if __name__ == "__main__":
     parser.add_argument('--eps3', help='discretization for calculating violation of wicks theorem',type=float,default=1E-2)        
 
     args=parser.parse_args()
+
     if args.info_cMERA:
         help(cMERA)
         sys.exit()
@@ -787,16 +805,14 @@ if __name__ == "__main__":
                      dtype=complex)
     
     #store all evolution parameters in a dict()
-    if (not args.truncAfterInt) and (not args.truncAfterFree):
-        setattr(args,'truncAfterFree',True)
     evolution_params=dict(cutoff=args.cutoff,
                           alpha=args.alpha,
                           inter=args.inter,
                           invrange=args.invrange,
                           operators=args.operators,
                           delta=args.delta*1.0j,
-                          truncAfterFree=args.truncAfterFree,
-                          truncAfterInt=args.truncAfterInt,                          
+                          truncAfterFree=not args.noTruncAfterFree,
+                          truncAfterInt=not args.noTruncAfterInt,                          
                           pinv=args.pinv,
                           tol=args.tol,
                           Dthresh=args.Dthresh,
@@ -834,7 +850,7 @@ if __name__ == "__main__":
             if 'psi' in args.measure:
                 data_accumulator=calculatePsi(data_accumulator,cmera_sim)
             if 'density' in args.measure:
-                data_accumulator=calculateDensity(data_accumulator,cmera_sim)
+                data_accumulator=calculateDensityObservables(data_accumulator,cmera_sim)
             if ('lams' in args.measure) or ('tw' in args.measure):                                
                 data_accumulator=cmera_sim.addMonitoringVariables(data_accumulator)
             if 'wick' in args.measure:
@@ -850,6 +866,6 @@ if __name__ == "__main__":
                 else:
                     warnings.warn('nothing to plot; skipping plots',stacklevel=2)
                 
-        sys.stdout.write('\r iteration %i, D=%i Dmax=%i, tw %.10f' %(cmera_sim.iteration,len(cmera_sim.lam),cmera_sim.Dmax,cmera_sim.truncated_weight))
+        sys.stdout.write('\r iteration %i, D=%i Dmax=%i, tw %.10f' %(cmera_sim.iteration,len(cmera_sim._lam),cmera_sim.Dmax,cmera_sim.truncated_weight))
         sys.stdout.flush()
 

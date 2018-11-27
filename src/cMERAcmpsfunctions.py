@@ -662,6 +662,7 @@ def calculateRelativisticCorrelators(Ql,Rl,r,cutoff,operators,dx,N,initial=None)
     initial:   np.ndarray of shape (D**2,), or None
                you can feed the output second output of a prior call of the function back as initial state
                to resume calculation with different dx and N
+
     Returns:
     -----------------
     (corr,vec)
@@ -670,7 +671,6 @@ def calculateRelativisticCorrelators(Ql,Rl,r,cutoff,operators,dx,N,initial=None)
     vec: np.ndarray of shape (D**2,)
          result of the last evolution step
     """
-    
     D=np.shape(Ql)[0]
     corr=np.zeros(N,dtype=type(Ql[0,0]))
     if operators[0]=='phi':
@@ -683,8 +683,7 @@ def calculateRelativisticCorrelators(Ql,Rl,r,cutoff,operators,dx,N,initial=None)
             vec=-cutoff/2.0*(np.reshape(np.transpose(Rl)-np.conj(Rl),D*D))
         else:
             vec=initial
-
-    elif operators[0]=='p_phi':
+    elif operators[0]=='dxphi':
         if np.any(initial==None):
             commQR=comm(Ql,Rl)
             vec=1/(2.0*cutoff)*(np.reshape(np.transpose(commQR)+np.conj(commQR),D*D))
@@ -697,7 +696,7 @@ def calculateRelativisticCorrelators(Ql,Rl,r,cutoff,operators,dx,N,initial=None)
         rdens=np.tensordot(Rl,r,([1],[0]))+np.tensordot(r,np.conj(Rl),([1],[1]))
     elif operators[1]=='pi':        
         rdens=np.tensordot(Rl,r,([1],[0]))-np.tensordot(r,np.conj(Rl),([1],[1]))
-    elif operators[1]=='p_phi':
+    elif operators[1]=='dxphi':
         commQR=comm(Ql,Rl)
         rdens=np.tensordot(commQR,r,([1],[0]))+np.tensordot(r,np.conj(commQR),([1],[1]))
     else:
@@ -711,6 +710,18 @@ def calculateRelativisticCorrelators(Ql,Rl,r,cutoff,operators,dx,N,initial=None)
         corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
     return corr,vec
 
+
+
+
+def  normalOrder(operators):
+    """
+    takes a string of "_" seperated operators and normal orders them
+    e.g. 'pd_p_p_pd_pd_dxp_dxpd'-> dxpd_pd_pd_pd_dxp_p_p
+    Returns:
+    string: the normal ordered operators
+    """
+    return '_'.join(sorted(operators.replace('_',' ').split(),key=lambda x: np.nonzero(np.array(['dxpd','pd','dxp','p'])==x)[0][0]))
+                
 
 def calculateCorrelators(Ql,Rl,r,operators,dx,N):
     """
@@ -753,14 +764,18 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
     ----------------
     ValueError if any other characters than "p" or "pd" are passed
     """
-    op_0=sorted(operators[0].replace('_',' ').split(),key=lambda x: int(not x=='pd')) #orders the list such that op_0 contains all 'pd' before all 'p'
-    op_1=sorted(operators[1].replace('_',' ').split(),key=lambda x: int(not x=='pd')) #orders the list such that op_1 contains all 'pd' before all 'p'
-    if not all([x in ('p','pd') for x in op_0]):
+    op_0=normalOrder(operators[0]).replace('_',' ').split()
+    op_1=normalOrder(operators[1]).replace('_',' ').split()    
+    #op_0=sorted(operators[0].replace('_',' ').split(),key=lambda x: np.nonzero(np.array(['dxpd','pd','dxp','p'])==x)[0][0]) #orders the list such that op_0 contains all 'dxpd' beofre 'pd' before 'dxp' before 'p'
+    #op_1=sorted(operators[1].replace('_',' ').split(),key=lambda x: np.nonzero(np.array(['dxpd','pd','dxp','p'])==x)[0][0]) #orders the list such that op_0 contains all 'dxpd' beofre 'pd' before 'dxp' before 'p'
+    #op_0=sorted(operators[0].replace('_',' ').split(),key=lambda x: int(not x=='pd')) #orders the list such that op_1 contains all 'pd' before all 'p'                
+    #op_1=sorted(operators[1].replace('_',' ').split(),key=lambda x: int(not x=='pd')) #orders the list such that op_1 contains all 'pd' before all 'p'
+    if not all([x in ('p','pd','dxp','dxpd') for x in op_0]):
         op_0_ar=np.array(op_0)
-        raise ValueError("unknown operators {0} in operators[0]".format(op_0_ar[(op_0_ar!='p')&(op_0_ar!='pd')]))    
+        raise ValueError("unknown operators {0} in operators[0]".format(op_0_ar[(op_0_ar!='p')&(op_0_ar!='pd')&(op_0_ar!='dxp')&(op_0_ar!='dxpd')]))    
     if not all([x in ('p','pd') for x in op_1]):
         op_1_ar=np.array(op_1)        
-        raise ValueError("unknown operators {0} in operators[1]".format(op_1_ar[(op_1_ar!='p')&(op_1_ar!='pd')]))    
+        raise ValueError("unknown operators {0} in operators[1]".format(op_1_ar[(op_1_ar!='p')&(op_1_ar!='pd')&(op_1_ar!='dxp')&(op_1_ar!='dxpd')]))    
 
     if len(op_0)==0:
         raise ValueError("no valid operators are given in operators[0]")
@@ -772,8 +787,14 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
     Rupper=np.eye(D)
     Rlower=np.eye(D)
     n=0
+    while (n<len(op_0)) and (op_0[n]=='dxpd'):
+        Rlower=Rlower.dot(comm(Ql,Rl))
+        n+=1
     while (n<len(op_0)) and (op_0[n]=='pd'):
         Rlower=Rlower.dot(Rl)
+        n+=1
+    while (n<len(op_0)) and (op_0[n]=='dxp'):
+        Rupper=Rupper.dot(comm(Ql,Rl))
         n+=1
     while (n<len(op_0)) and (op_0[n]=='p'):
         Rupper=Rupper.dot(Rl)
@@ -784,12 +805,19 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
     Rupper=np.eye(D)
     Rlower=np.eye(D)
     n=0
+    while (n<len(op_1)) and (op_1[n]=='dxpd'):
+        Rlower=Rlower.dot(comm(Ql,Rl))
+        n+=1
     while (n<len(op_1)) and (op_1[n]=='pd'):
         Rlower=Rlower.dot(Rl)
+        n+=1
+    while (n<len(op_1)) and (op_1[n]=='dxp'):
+        Rupper=Rupper.dot(comm(Ql,Rl))
         n+=1
     while (n<len(op_1)) and (op_1[n]=='p'):
         Rupper=Rupper.dot(Rl)
         n+=1
+        
     rdens=Rupper.dot(r).dot(herm(Rlower))
 
     corr=np.zeros(N,dtype=type(Ql[0,0]))
