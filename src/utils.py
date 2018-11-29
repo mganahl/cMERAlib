@@ -1,5 +1,18 @@
 import re
+import copy
 
+def get_checkpoint_number(string):
+    """
+    takes as input string a cMERA checkpoint filename and returns
+    its iteration number
+    """
+    n=len(string)-1
+    while(string[n]!='.'):
+        n-=1
+    n1=copy.copy(n)
+    while(string[n]!='_'):
+        n-=1
+    return int(string[n+1:n1])
 
 def convert(val):
 
@@ -43,7 +56,6 @@ def read_parameters(filename):
     """
     
     params={}
-    print(filename)
     with open(filename, 'r') as f:
         for line in f:
             if '[' not in line:
