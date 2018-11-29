@@ -70,6 +70,8 @@ def calculateCorrelator(data_accumulator,cmera,operators,N1=10,N2=40000,eps1=1E-
     x=np.append(np.arange(1,N1+1)*eps1,np.arange(2,N2+1)*eps2)
     corr1,vec1=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=operators,dx=eps1,N=N1,initial=None)
     corr2,vec2=cmf.calculateRelativisticCorrelators(Ql=Qltens,Rl=Rltens,r=np.diag(lamtens**2),cutoff=cmera.cutoff,operators=operators,dx=eps2,N=N2,initial=vec1)
+    #=cmf.CorrCorr(Qltens,Rltens,np.diag(lamtens**2),eps1,N1,cmera.cutoff,initial=None)
+    #=cmf.CorrCorr(Qltens,Rltens,np.diag(lamtens**2),eps2,N2,cmera.cutoff,initial=vec1)
     corr=np.append(corr1,corr2[1::])    
     label=operators[0]+'(0)'+operators[1]+'(x)'
     if  label not in data_accumulator:
