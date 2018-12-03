@@ -211,9 +211,7 @@ def density_density_interactingEntanglingPropagator(invrange,delta,inter,dtype=c
     A11[1,0]=np.sqrt(2*delta*inter)
     return [[G00,np.zeros((2,2)).astype(dtype)],[np.zeros((2,2)).astype(dtype),A11]]
 
-
 def interactingEntanglingPropagator(cutoff,invrange,delta,inter,operators=['phi','phi','phi','phi'],dtype=complex):
-    
     """
     this is the implementation of 
 
@@ -232,29 +230,28 @@ def interactingEntanglingPropagator(cutoff,invrange,delta,inter,operators=['phi'
     inter: float
            interaction strength
     operators: list of length 4 or 2 of str
-               each element in operators can be either of ['phi','pi','psi','psidag']
-               where 'phi', 'pi', 'psi' and 'psidag' are the usual field operators of a bosonic field theory
+               each element in operators can be either of ['phi','pi','psi','p','psidag','pd']
+               where 'phi', 'pi', 'psi' or 'p' and 'psidag' or 'pd'  are the usual field operators of a bosonic field theory
               
     Returns:
     Gamma:a list of list containing the cMPO matrices of the propagator exp(delta K)
           note that Gamma[1][1] is 0!
     """
     dx=0.1
-    if not all([o in ('phi','pi','psi','psidag') for o in operators]):
-        raise ValueError("unknown operators {}. each element in operators has to be one of ('phi','pi','psi','psidag')".format(np.array(operators)[[o not in ('phi','pi','psi','psidag') for o in operators]]))
+    if not all([o in ('phi','pi','psi','psidag','p','pd') for o in operators]):
+        raise ValueError("unknown operators {}. each element in operators has to be one of ('phi','pi','psi','psidag')".format(np.array(operators)[[o not in ('phi','pi','psi','psidag','p','pd') for o in operators]]))
     
     c=np.zeros((2,2)).astype(dtype)
     c[0,1]=1.0    
     cdag=herm(c)
-    
 
     ops={}
     ops['phi']=np.sqrt(dx)*(inter*24.0)**0.25*(c+herm(c))/np.sqrt(2*cutoff)
     ops['pi']=np.sqrt(dx)*(inter*24.0)**0.25*(c-herm(c))*np.sqrt(2*cutoff)/2.0j
     ops['psi']=np.sqrt(dx)*(inter*24.0)**0.25*c
+    ops['p']=np.sqrt(dx)*(inter*24.0)**0.25*c    
     ops['psidag']=np.sqrt(dx)*(inter*24.0)**0.25*herm(c)
-
-
+    ops['pd']=np.sqrt(dx)*(inter*24.0)**0.25*herm(c)    
         
     interactingMPO=np.zeros((5,5,2,2)).astype(dtype)
     interactingMPO[0,0,:,:]=np.eye(2)

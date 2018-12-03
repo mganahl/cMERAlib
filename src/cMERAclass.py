@@ -222,14 +222,15 @@ class cMERA(object):
             pickle.dump(self,f)
 
     @classmethod
-    def load(cls,filename):
+    def read(cls,filename):
+        
         """
-        load a simulation from a pickle file
+        read a simulation from a pickle file
         Parameters:
         ---------------
         filename: str
                   the pickle file
-
+    
         Returns:
         ---------------
         a cMERA instance holding the loaded simulation
@@ -238,6 +239,33 @@ class cMERA(object):
         with open(filename,'rb') as f:
             cls=pickle.load(f)
         return cls
+
+    
+    def load(self,filename):
+        
+        """
+        load a simulation from a pickle file into the current cMERA class
+        overwrites current data
+        Parameters:
+        ---------------
+        filename: str
+                  the pickle file
+
+        Returns:
+        ---------------
+        None
+        
+        """
+        with open(filename,'rb') as f:
+            cls=pickle.load(f)
+        #delete all attribute of self which are not present in cls
+        todelete=[attr for attr in vars(self) if not hasattr(cls,attr)]
+        for attr in todelete:
+            delattr(self,attr)
+            
+        for attr in cls.__dict__.keys():
+            setattr(self,attr,getattr(cls,attr))
+
     
     def addMonitoringVariables(self,data_accumulator):
         """

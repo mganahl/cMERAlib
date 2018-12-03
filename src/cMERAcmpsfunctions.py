@@ -1,4 +1,5 @@
 import numpy as np
+import math
 import scipy as sp
 from sys import stdout
 from scipy.sparse.linalg import LinearOperator
@@ -178,19 +179,72 @@ def transferOperator(Q,R,direction,vector):
     np.ndarray of shape vector.shape
     the result of applying the cMPS transfer operator to vector
     """
+    #D=np.shape(Q)[0]
+    #x=np.reshape(vector,(D,D))
+    #if direction in (1,'l','left'):
+    #    out=np.transpose(Q).dot(x)+x.dot(np.conj(Q))
+    #    for n in range(len(R)):
+    #        out=out+np.transpose(R[n]).dot(x).dot(np.conj(R[n]))
+    #    return np.reshape(out,vector.shape)
+    #
+    #elif direction in (-1,'r','right'):
+    #    out=Q.dot(x)+x.dot(herm(Q))
+    #    for n in range(len(R)):
+    #        out=out+R[n].dot(x).dot(herm(R[n]))
+    #    return np.reshape(out,vector.shape)
+    return mixedTransferOperator(Q,R,Q,R,direction,vector)
+
+def mixedTransferOperator(Qupper,Rupper,Qlower,Rlower,direction,vector):
     
-    D=np.shape(Q)[0]
-    x=np.reshape(vector,(D,D))
+    """
+    calculate the action of the cMPS transfer operator onto vector
+    Parameters:
+    ------------------
+    Qupper:      np.ndarray of shape (D,D)
+                 the Q-matrix of a cMPS on the unconjugated side
+    Rupper:      list of np.ndarray() of shape (D,D)
+                 the R-matrices of the cMPS on the unconjugated side
+    Qlower:      np.ndarray of shape (D,D)
+                 the Q-matrix of the cMPS on the conjugated side
+    Rlower:      list of np.ndarray() of shape (D,D)
+                 the R-matrices of the cMPS on the conjugated side
+    direction:   int
+                 if direction in {1,'l','left'}: calculate the left-action
+                 if direction in {-1,'r','right'}: calculate the right-action
+    vector:      np.ndarray of shape (D*D) or (D,D)
+                 the left or right vector; it has to be obtained from reshaping
+                 a matrix of shape (D,D) into a vector.
+                 Index convention of matrix: index "0" is on the unconjugated leg, index "1" 
+                 on the conjugated leg
+
+    Returns:
+    -----------------------
+    np.ndarray of shape vector.shape
+    the result of applying the cMPS transfer operator to vector
+    """
+    if len(Rupper)!=len(Rlower):
+        raise ValueError("different number of R matrices of upper and lower cMPS")        
+    for R in Rupper:
+        if Qupper.shape!=R.shape:
+            raise ValueError("upper cMPS matrices have different shapes")
+    for R in Rlower:        
+        if Qlower.shape!=R.shape:
+            raise ValueError("lower cMPS matrices have different shapes")
+
+    Du=np.shape(Qupper)[0]
+    Dl=np.shape(Qlower)[0]
+
+    x=np.reshape(vector,(Du,Dl))
     if direction in (1,'l','left'):
-        out=np.transpose(Q).dot(x)+x.dot(np.conj(Q))
-        for n in range(len(R)):
-            out=out+np.transpose(R[n]).dot(x).dot(np.conj(R[n]))
+        out=np.transpose(Qupper).dot(x)+x.dot(np.conj(Qlower))
+        for n in range(len(Rupper)):
+            out=out+np.transpose(Rupper[n]).dot(x).dot(np.conj(Rlower[n]))
         return np.reshape(out,vector.shape)
 
     elif direction in (-1,'r','right'):
-        out=Q.dot(x)+x.dot(herm(Q))
-        for n in range(len(R)):
-            out=out+R[n].dot(x).dot(herm(R[n]))
+        out=Qupper.dot(x)+x.dot(herm(Qlower))
+        for n in range(len(Rupper)):
+            out=out+Rupper[n].dot(x).dot(herm(Rlower[n]))
         return np.reshape(out,vector.shape)
 
     
@@ -829,6 +883,86 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
         corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
     return corr
 
+
+def apply_herm_phase_operator(Q,R,cutoff):
+    """
+    apply the phase operators exp(i\pi\int_{-\infty}^{\infty} \Pi(x) dx)) to a cmps
+    Q:   np.ndarray of shape (D,D)
+         Q matrix of the cMPS
+    R:   list of np.ndarray of shape (D,D)
+         R matrices of the cMPS
+    cutoff: needed in the definition of \Pi=i sqrt(cutoff/2)(psi^{\dagger} -\psi)
+    """
+    return Q-math.pi*np.sqrt(cutoff/2)*R,R+math.pi*np.sqrt(cutoff/2)*np.eye(R.shape[0])
+def apply_phase_operator(Q,R,cutoff):
+    """
+    apply the phase operators exp(-i\pi\int_{-\infty}^{\infty} \Pi(x) dx)) to a cmps
+    Q:   np.ndarray of shape (D,D)
+         Q matrix of the cMPS
+    R:   list of np.ndarray of shape (D,D)
+         R matrices of the cMPS
+    cutoff: needed in the definition of \Pi=i sqrt(cutoff/2)(psi^{\dagger} -\psi)
+    """
+    
+    return Q+math.pi*np.sqrt(cutoff/2)*R,R-math.pi*np.sqrt(cutoff/2)*np.eye(R.shape[0])
+
+def calculatePhaseCorrelator(Ql,Rl,r,cutoff,dx,N):
+
+    """
+    calculate the correlation function <e^{-i\theta(0) e^{i\theta(x)}}>
+    Ql:        np.ndarray of shape (D,D)
+               cMPS matrix in left orthogonal form
+    Rl:        np.ndarray of shape (D,D)
+               cMPS matrix in left orthogonal form
+    r:         np.ndarray of shape (D,D)
+               right reduced density matrix (i.e. right dominant eigenvector of the cMPS transfer operator)
+    dx:        float
+               space increment, used to calculate the correlation at psi*(0)psi(n*dx)
+    N:         int
+               calculate correlator at points x=np.arange(N)*dx
+
+    """
+    Q,R=apply_herm_phase_operator(Ql,Rl,cutoff)
+    lam,ql,rl,qr,rr,rest=canonize(Q,[R])
+    D=np.shape(Ql)[0]
+    corr=np.zeros(N,dtype=type(Ql[0,0]))
+    vec=np.reshape(np.eye(D),D*D)
+    for n in range(N):
+        if n%1000==0:
+            stdout.write("\r %i/%i" %( n,N))
+            stdout.flush()
+        vec=vec+dx*mixedTransferOperator(Ql,[Rl],ql,rl,'left',vec)
+        corr[n]=np.tensordot(np.reshape(vec,(D,D)),r,([0,1],[0,1]))
+    return corr,vec
+
+def calculatePartialPhiCorrelator(Ql,Rl,r,cutoff,dx,N):
+
+    """
+    calculate the correlation function <\partial Phi(0)\partial Phi(x)}>
+    Ql:        np.ndarray of shape (D,D)
+               cMPS matrix in left orthogonal form
+    Rl:        np.ndarray of shape (D,D)
+               cMPS matrix in left orthogonal form
+    r:         np.ndarray of shape (D,D)
+               right reduced density matrix (i.e. right dominant eigenvector of the cMPS transfer operator)
+    dx:        float
+               space increment, used to calculate the correlation at psi*(0)psi(n*dx)
+    N:         int
+               calculate correlator at points x=np.arange(N)*dx
+
+    """
+    Q,R=apply_herm_phase_operator(Ql,Rl,cutoff)
+    lam,ql,rl,qr,rr,rest=canonize(Q,[R])
+    D=np.shape(Ql)[0]
+    corr=np.zeros(N,dtype=type(Ql[0,0]))
+    vec=np.reshape(np.eye(D),D*D)
+    for n in range(N):
+        if n%1000==0:
+            stdout.write("\r %i/%i" %( n,N))
+            stdout.flush()
+        vec=vec+dx*mixedTransferOperator(Ql,[Rl],ql,rl,'left',vec)
+        corr[n]=np.tensordot(np.reshape(vec,(D,D)),r,([0,1],[0,1]))
+    return corr,vec
 
 def calculateRenyiEntropy(Q,R,init,N,dx,alpha,eps=1E-8,Dmax=50,tol=1E-10):
     """
