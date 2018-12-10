@@ -74,6 +74,38 @@ class cMERA(object):
         #self.lam,self.Ql,self.Rl,Qrtens,Rrtens,rest1=cmf.regauge_with_trunc(self.Ql,[self.Rl],dx=0.0,gauge='symmetric',linitial=None,rinitial=None,nmaxit=100000,tol=1E-14,\
             #                                                                    ncv=40,numeig=6,pinv=1E-200,thresh=1E-10,trunc=1E-16,Dmax=self.Ql.shape[0],verbosity=0)
         #self.Rl=self.Rl[0]
+        
+    def truncate(self,Dmax,trunc=1E-14,tol=1E-12,ncv=30,numeig=6,pinv=1E-200,thresh=1E-8):
+        """
+        Truncate the cMPS matrices Ql and Rl 
+        Parameters:
+        -------------------------------------
+        Dmax:     int
+                  maximum bond dimension
+        trunc:    float (1E-14)
+                  truncation threshold during regauging; all Schmidt-values smaller than trunc will be removed, irrespective
+                  of the maximally allowed bond-dimension
+        tol:      float (1E-10):
+                  precision parameter for calculating the reduced density matrices during truncation
+        ncv:      int (30)nn
+                  number of krylov vectors to be used when calculating the transfer-matrix eigenvectors during truncation
+        numeig:   int (6)
+                  number of eigenvector-eigenvalue pairs of the transfer-matrix to be calculated 
+        pinv:     float (1E-20)
+                  pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
+        thresh:   float (1E-10)
+                  related to printing some warnings; not relevant
+        """
+        
+        try:                
+            self._lam,self.Ql,self.Rl,Qrtens,Rrtens,rest1=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
+                                                                       ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=Dmax,verbosity=0)
+            self.truncated_weight=np.sum(rest1)
+            self.Rl=self.Rl[0]
+            return rest1            
+        except TypeError:
+            pass
+    
     def doStep(self,cutoff=1.0,alpha=None,inter=0.0,invrange=1.0,operators=['n','n'],delta=1E-3,truncAfterFree=True,truncAfterInt=True,
                pinv=1E-200,tol=1E-12,Dthresh=1E-6,trunc=1E-10,Dinc=1,ncv=30,numeig=6,thresh=1E-8):
         """
@@ -169,13 +201,7 @@ class cMERA(object):
             self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gamma[0][0])+np.kron(self.Ql,np.eye(self.Dmpo))+np.kron(self.Rl,self.Gamma[1][0])
             self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gamma[0][1])+np.kron(self.Rl,np.eye(self.Dmpo))
             if truncAfterFree:
-                try:                
-                    self._lam,self.Ql,self.Rl,Qrtens,Rrtens,rest1=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
-                                                                              ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=self.D,verbosity=0)
-                    self.truncated_weight=np.sum(rest1)
-                    self.Rl=self.Rl[0]
-                except TypeError:
-                    pass
+                _=self.truncate(Dmax=self.D,trunc=trunc,tol=tol,ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh)
         if np.abs(inter)>1E-10:
             self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gammaint[0][0])+np.kron(self.Ql,np.eye(self.Dmpoint))
             if interactiontype=='nn':
@@ -183,19 +209,15 @@ class cMERA(object):
             elif interactiontype=='oooo':                
                 self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gammaint[0][1])+np.kron(self.Rl,np.eye(self.Dmpoint))
             if truncAfterInt:
-                try:
-                    self._lam,self.Ql,self.Rl,Qrtens,Rrtens,rest2=cmf.canonize(self.Ql,[self.Rl],linit=None,rinit=None,maxiter=100000,tol=tol,\
-                                                                              ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh,trunc=trunc,Dmax=self.D,verbosity=0)
-
-                    self.truncated_weight+=np.sum(rest2)            
-                    self.Rl=self.Rl[0]
-                except TypeError:
-                    pass
+                _=self.truncate(Dmax=self.D,trunc=trunc,tol=tol,ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh)                
         self.Ql*=np.exp(-np.imag(delta))
         self.Rl*=np.exp(-np.imag(delta)/2.0)
         self.scale+=np.abs(delta)
         self.iteration+=1        
 
+
+
+        
     @property
     def lam(self):
         if self._lam.shape[0]!=self.Ql.shape[0]:

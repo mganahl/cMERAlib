@@ -401,7 +401,7 @@ if __name__ == "__main__":
     if args.info_cMERA:
         help(cmera.cMERA)
         sys.exit()
-    observables=['pipi','dxphidxphi','dphidphi','lam','density','n','psi','tw','wick','exact']
+    observables=['pipi','dxphidxphi','dphidphi','lam','density','n','psi','tw','wick','exact','']
     if args.parameterfile!=None:
         parameters=utils.read_parameters(args.parameterfile)
         for k,v in parameters.items():
