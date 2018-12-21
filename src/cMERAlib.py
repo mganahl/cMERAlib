@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 import numpy as np
+import sympy
+from sympy.core.symbol import Symbol
 import functools as fct
 import warnings
 from scipy.sparse.linalg import LinearOperator
@@ -165,7 +167,48 @@ def getcMPO(mpo,dx):
     return Gamma
 
     
-def freeEntanglingPropagator(cutoff,delta,alpha=None,dtype=complex):
+def tocMPOorder(mpo):
+    """
+    takes an mpo and and permutes indices into cmpo order;
+    Parameters:
+    ----------
+    mpo:  np.ndarray of shape (M,M,d,d)
+
+    Returns:
+    ----------
+    Gamma: list of length d of list of length d of np.ndarray
+    the MPO permuted into cMPO format
+
+    """
+    M=mpo.shape[0]
+    d=mpo.shape[2]    
+    mat=np.reshape(np.transpose(mpo,(2,0,3,1)),(M*d,M*d))
+    Gamma=[]
+    for d1 in range(d):
+        G=[]
+        for d2 in range(d):
+            G.append(mat[d1*M:(d1+1)*M,d2*M:(d2+1)*M])
+        Gamma.append(G)
+    return Gamma
+    
+def toMPOorder(cMPO):
+    """
+    takes a list of lists of np.ndarray and 
+    permutes it into MPO index order
+
+    Parameters:
+    -------------
+    cMPO:    list of length d of list of length d of np.ndarray of shape (M,M)
+             the cMPO matrices \Gamma_{ij}
+    Returns:
+    --------------
+    np.ndarray of shape (M,M,d,d)
+    the cMPO, permuted into MPO-index-order
+    """
+    return np.transpose(np.array(cMPO),(2,3,0,1))
+
+    
+def freeEntanglingPropagator(cutoff,delta,alpha=None,dtype=complex,thresh=1E-14):
     """
     Generate the mpo representation of the entangling evolution for a free scalar, massless boson
     the implemented operator is  -1j*alpha/2\int dx dy exp(-cutoff*abs(x-y))*(psi(x)psi(y)-psidag(x)psidag(y))
@@ -180,27 +223,56 @@ def freeEntanglingPropagator(cutoff,delta,alpha=None,dtype=complex):
               time step of the entangling evolution
     alpha:    float or None
               the strength of the entangler; if None, alpha=-1j*cutoff/8
-    dtype:    type float or type complex
-              data type 
+    dtype:    type float or type complex or sympy.core.symbol.Symbol
+              data type; us  for symbolic 
+              evaluations, e.g. for using symbolic discretization dx later on
 
     Returns:
     -----------------
     Gamma: list of length 2 of list of length 2 of np.ndarray: 
-           the cMPO matrices of the entangling propagator
+           the cMPO matrices of the entangling propagator, in column major ordering
     """
-    if alpha==None:
-        alpha=cutoff/4.0
+    if isinstance(dtype,tuple(sympy.core.all_classes)):
+        #num=(delta*alpha)**(1/2)*sympy.exp(-1j*math.pi/4)
+        #if sympy.Abs(sympy.re(delta))<thresh and sympy.im(delta)>0.0:
+        #    num=(sympy.im(delta)*alpha)**(1/2)
+        #elif sympy.Abs(sympy.re(delta))<thresh and sympy.im(delta)<0.0:
+        #    num=(-sympy.im(delta)*alpha)**(1/2)*sympy.I
+        #else:
+        if alpha==None:
+            alpha=cutoff/4.0
         
-    G00=np.diag([0,-cutoff,-cutoff]).astype(dtype)
-    G11=np.diag([0,-cutoff,-cutoff]).astype(dtype)
+        num=(delta*alpha)**(1/2)*sympy.exp(-sympy.I*sympy.pi/4)
+            
+        G00=np.diag([sympy.S(0),-cutoff,-cutoff]).astype(dtype)*sympy.S(1.0)
+        G11=np.diag([sympy.S(0),-cutoff,-cutoff]).astype(dtype)*sympy.S(1.0)
+        
+        G01=np.zeros((3,3)).astype(dtype)*sympy.S(1.0)
+        G01[0,2]=num#np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
+        G01[2,0]=num#np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
+        
+        G10=np.zeros((3,3)).astype(dtype)*sympy.S(1.0)
+        G10[0,1]=num#np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
+        G10[1,0]=-num#np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
+    else:
+        # if np.abs(np.imag(num))<thresh:
+        #     num=np.real(num)
+        # else:
+        #     num=np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
+        if alpha==None:
+            alpha=cutoff/4.0
+        num=np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
 
-    G01=np.zeros((3,3)).astype(dtype)
-    G01[0,2]=np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
-    G01[2,0]=np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
-
-    G10=np.zeros((3,3)).astype(dtype)
-    G10[0,1]=np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
-    G10[1,0]=-np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
+        G00=np.diag([0,-cutoff,-cutoff]).astype(dtype)
+        G11=np.diag([0,-cutoff,-cutoff]).astype(dtype)
+        
+        G01=np.zeros((3,3)).astype(dtype)
+        G01[0,2]=num#np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
+        G01[2,0]=num#np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
+        
+        G10=np.zeros((3,3)).astype(dtype)
+        G10[0,1]=num#np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
+        G10[1,0]=-num#np.sqrt(delta*alpha)*np.exp(-1j*math.pi/4)
 
     return [[np.copy(G00),np.copy(G01)],[np.copy(G10),np.copy(G11)]]
 
@@ -274,8 +346,23 @@ def interactingEntanglingPropagator(cutoff,invrange,delta,inter,operators=['phi'
 
 
 
+def measure_energy_free_boson_with_cutoff(Ql,Rl,rdens,cutoff):
+    operators=['dxpd_dxp','p_p','pd_pd','pd_p']
+    prefactors=[1.0/cutoff,-cutoff/4.0,-cutoff/4.0,cutoff/2.0]
+    ens=[pf*cmf.calculateLocalObservables(Ql,Rl,rdens,operator=op) for op,pf in zip(operators,prefactors)]
+    #if not all(np.imag(ens)<1E-8):
+    #    warnings.warn(f"imaginary energies found! {np.imag(ens)}",stacklevel=3)
+    #    #raise TypeError("imaginary energies found!")
+    return np.sum(np.real(ens))
 
-
+def measure_energy_Lieb_Liniger(Ql,Rl,rdens,mass=0.5,mu=-0.5,g=1.0):
+    operators=['dxpd_dxp','pd_pd_p_p','pd_p']
+    prefactors=[1.0/(2*mass),g,mu]
+    ens=[pf*cmf.calculateLocalObservables(Ql,Rl,rdens,operator=op) for op,pf in zip(operators,prefactors)]
+    #if not all(np.imag(ens)<1E-8):
+    #    warnings.warn(f"imaginary energies found! {np.imag(ens)}",stacklevel=3)        
+    #    #raise TypeError("imaginary energies found!")
+    return np.sum(np.real(ens))
 
 
 

@@ -337,7 +337,59 @@ def inverseTransferOperator(Q,R,l,r,ih,direction,x0=None,tol=1e-10,maxiter=4000,
         [x,info]=lgmres(LOP,np.reshape(ih,D*D),x0=np.random.rand(D*D).astype(Q.dtype),tol=tol,maxiter=maxiter,**kwargs)
     return np.reshape(x,ih.shape)
 
+def eigs(LOP,numeig=6,init=None,maxiter=100000,tol=1e-12,ncv=40,which='LR',**kwargs):
+    """
+    calculate the dominant left or right eigenvector of LOP
+    Parameters:
+    ------------------
+    LOP:         scipy.linalg.sparse.LinearOperator
+                 the linear operator to be diagonalized 
+    numeig:      int
+                 number of eigenvalue-eigenvector pairs to be calculated
+    init:        np.ndarray of shape (D,D) or (D**2) or None
+                 initial guess for the eigenvector
+    maxiter:     int
+                 maximum number of iterations
+    tol:         float
+                 desired precision 
+    ncv:         int
+                 number of krylov vectors used in the solver
+    which:       str
+                 one of {'LM', 'SM' , 'LR' , 'SR' , 'LI' , 'SI'} see scipy documentation of eigs for details
 
+    **kwargs:    additinal named parameters to be passed to eigs
+
+    Returns:
+    ------------------
+    (eta,v)
+    eta: LOP.dtype
+         eigenvalue
+    v:   np.ndarray of dtype LOP.dtype
+         the dominant eigenvector
+    """
+    
+    if np.any(init==None):
+        v0=None
+    else:
+        v0=np.reshape(init,LOP.shape[1])
+
+    try:
+        eta,vec=sp.sparse.linalg.eigs(LOP,k=numeig,which=which,v0=v0,maxiter=maxiter,tol=tol,ncv=ncv,**kwargs)
+        m=np.argmax(np.real(eta))
+        while np.abs(np.imag(eta[m]))>1E-3:
+            #numeig=numeig+1
+            #print ('found TM eigenvalue with large imaginary part (ARPACK BUG); recalculating with larger numeig={0}'.format(numeig))
+            print ('found TM eigenvalue eta ={0} with large imaginary part (ARPACK BUG); recalculating with a new initial state and LR'.format(eta))
+            eta,vec=sp.sparse.linalg.eigs(LOP,k=numeig,which='LR',v0=np.random.rand(LOP.shape[1]).astype(dtype),maxiter=maxiter,tol=tol,ncv=ncv,**kwargs)
+            m=np.argmax(np.real(eta))
+        return eta[m],np.reshape(vec[:,m],LOP.shape[1])
+
+    except ArpackError:
+        print ('Arpack just threw an exception .... ' )
+        return TMeigs(Q,R,dx,direction,numeig,np.random.rand(LOP.shape[1]).astype(dtype),maxiter,tol,ncv,which)
+
+
+    
 def TMeigs(Q,R,direction,numeig=6,init=None,maxiter=100000,tol=1e-12,ncv=40,which='LR',**kwargs):
     """
     calculate the dominant left or right eigenvector of the cMPS transfer operator
@@ -362,6 +414,7 @@ def TMeigs(Q,R,direction,numeig=6,init=None,maxiter=100000,tol=1e-12,ncv=40,whic
                  number of krylov vectors used in the solver
     which:       str
                  one of {'LM', 'SM' , 'LR' , 'SR' , 'LI' , 'SI'} see scipy documentation of eigs for details
+
     **kwargs:    additinal named parameters to be passed to eigs
 
     Returns:
@@ -372,32 +425,11 @@ def TMeigs(Q,R,direction,numeig=6,init=None,maxiter=100000,tol=1e-12,ncv=40,whic
     v:   np.ndarray of dtype np.result_type(Q,*R)
          the dominant eigenvector
     """
-    
     D=np.shape(Q)[0]
     dtype=np.result_type(Q,*R)
     mv=fct.partial(transferOperator,*[Q,R,direction])
     LOP=LinearOperator((D*D,D*D),matvec=mv,rmatvec=None,matmat=None,dtype=dtype)
-    if np.any(init==None):
-        v0=None
-    else:
-        v0=np.reshape(init,D*D)
-
-    try:
-        eta,vec=sp.sparse.linalg.eigs(LOP,k=numeig,which=which,v0=v0,maxiter=maxiter,tol=tol,ncv=ncv,**kwargs)
-        m=np.argmax(np.real(eta))
-        while np.abs(np.imag(eta[m]))>1E-3:
-            #numeig=numeig+1
-            #print ('found TM eigenvalue with large imaginary part (ARPACK BUG); recalculating with larger numeig={0}'.format(numeig))
-            print ('found TM eigenvalue eta ={0} with large imaginary part (ARPACK BUG); recalculating with a new initial state and LR'.format(eta))
-            eta,vec=sp.sparse.linalg.eigs(LOP,k=numeig,which='LR',v0=np.random.rand(D*D).astype(dtype),maxiter=maxiter,tol=tol,ncv=ncv,**kwargs)
-            m=np.argmax(np.real(eta))
-        return eta[m],np.reshape(vec[:,m],D*D)
-
-    except ArpackError:
-        print ('Arpack just threw an exception .... ' )
-        return TMeigs(Q,R,dx,direction,numeig,np.random.rand(D*D).astype(dtype),maxiter,tol,ncv,which)
-
-    
+    return eigs(LOP,numeig=numeig,init=init,maxiter=maxiter,tol=tol,ncv=ncv,which=which,**kwargs)    
 
 def regauge(Q,R,gauge='left',init=None,maxiter=100000,tol=1E-10,ncv=100,numeig=6,pinv=1E-200,thresh=1E-10,**kwargs):
     """
@@ -776,6 +808,67 @@ def  normalOrder(operators):
     """
     return '_'.join(sorted(operators.replace('_',' ').split(),key=lambda x: np.nonzero(np.array(['dxpd','pd','dxp','p'])==x)[0][0]))
                 
+
+def calculateLocalObservables(Ql,Rl,r,operator):
+    """
+    calculate local observables for a bosonic theory with a single species of bosons
+
+    Parameters:
+    --------------------
+    Ql:        np.ndarray of shape (D,D)
+               cMPS matrix in left orthogonal form
+    Rl:        np.ndarray of shape (D,D)
+               cMPS matrix in left orthogonal form
+    r:         np.ndarray of shape (D,D)
+               right reduced density matrix (i.e. right dominant eigenvector of the cMPS transfer operator)
+    operators: str
+               operators has to be a "_" or " " seperated string of "p" and "pd" characters,
+               for example p_p_pd_p_pd. "p" is short for psi, "pd" is short for psidagger.
+               ```operators``` encodes the operators to be measure locally.
+               ```operators``` will be normal ordered such that all "pd" appear before any "p"
+
+               Example:
+               operators='p_pd_p'
+               calculates the  local observable <psidagger*psi*psi)>
+
+               Note that operators within each string are always automatically converted to normal ordering 
+               within the function, i.e. 'p_p_pd_p_pd' -> 'pd_pd_p_p_p'
+     
+    Returns:
+    -----------------
+    float or complex:   the measurement result
+
+    Raises:
+    ----------------
+    ValueError if any other characters than "p" or "pd" are passed
+    """
+    ops=normalOrder(operator).replace('_',' ').split()
+    if not all([x in ('p','pd','dxp','dxpd') for x in ops]):
+        ops_ar=np.array(ops)
+        raise ValueError("unknown operators {0} in operators".format(ops_ar[(ops_ar!='p')&(ops_ar!='pd')&(ops_ar!='dxp')&(ops_ar!='dxpd')]))    
+    if len(ops)==0:
+        raise ValueError("no valid operators are given in operators")
+
+    D=np.shape(Ql)[0]        
+    Rupper=np.eye(D)
+    Rlower=np.eye(D)
+    n=0
+    while (n<len(ops)) and (ops[n]=='dxpd'):
+        Rlower=Rlower.dot(comm(Ql,Rl))
+        n+=1
+    while (n<len(ops)) and (ops[n]=='pd'):
+        Rlower=Rlower.dot(Rl)
+        n+=1
+    while (n<len(ops)) and (ops[n]=='dxp'):
+        Rupper=Rupper.dot(comm(Ql,Rl))
+        n+=1
+    while (n<len(ops)) and (ops[n]=='p'):
+        Rupper=Rupper.dot(Rl)
+        n+=1
+
+    vec=np.transpose(herm(Rlower).dot(Rupper))
+    obs=np.tensordot(vec,r,([0,1],[0,1]))
+    return obs
 
 def calculateCorrelators(Ql,Rl,r,operators,dx,N):
     """
