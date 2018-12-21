@@ -403,6 +403,7 @@ class cMERA(object):
         cost_fun.
 
         Parameters:
+        -----------------------
         cost_fun:            callable
                              the cost function with respect to which the optimal parameter is found
                              the call signature of cost_fun has to be 
@@ -420,11 +421,11 @@ class cMERA(object):
                              numer of evolution steps carried out before the evaluation of cost_fun
         test_delta:          complex
                              scale increment used for the evolution
-        param_range:         dict
-                             param_range['start']=float
-                             param_range['stop']=float
-                             param_range['num']=int
-                             the range of values over which the optimal value for parameter ```name``` is searched
+        line_search_params:  dict
+                             line_search_params['start']=float
+                             line_search_params['inc']=int
+                             line_search_params['maxsteps']=int
+                             initial value, increment and maximum iteration number for the line search
                              parameter_range=np.linspace(param_range)
         pinv:     float (1E-200)
                   pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
@@ -446,6 +447,17 @@ class cMERA(object):
         thresh:   float (1E-10)
                   related to printing some warnings; not relevant
 
+        Returns:
+        -----------------------------
+        (argmin,param_values,energies):
+        argmin:       dict
+                      maps str to float; keys are str corresponding to the names of the parameters
+                      values are the parameter values after optimization
+        param_values: dict
+                      keys:   str (parameter names)
+                      values: np.ndarray: the value of the parameter at each iteration step
+        energies:     np.ndarray
+                      the energies at each iteration
         """
         if name in other_params.keys():
             raise ValueError('name of optimized parameter also appears on ather_params')
@@ -524,7 +536,7 @@ class cMERA(object):
             
         minind=np.argmin(energies)
         argmin={p:v[minind] for p,v in param_values.items()}
-        return argmin,energies,param_values
+        return argmin,param_values,energies
     
 
 
@@ -539,6 +551,78 @@ class cMERA(object):
                           Dinc=1,ncv=30,
                           numeig=6,thresh=1E-8,
                           plot=False):
+
+
+        """
+        optimization routine for cmera
+        finds the optimal value of a given parameter of the entangler, as determined by
+        cost_fun, by iteratively evolving the cmera 
+
+        Parameters:
+        -----------------------
+        cost_fun:            callable
+                             the cost function with respect to which the optimal parameter is found
+                             the call signature of cost_fun has to be 
+                             val=cost_fun(Ql,Rl,lam,**cost_tun_params)
+                             val is of type float
+                             Ql,Rl: np.ndarray of shape (D,D)
+                             rdens: np.ndarray of shape (D,D)
+                             Ql,Rl are left orthogonal cMPS matrices, rdens is the corresponding right reduced density matrix
+                             the cMERA class
+        cost_fun_params:     dict
+                             other parameters of cost_fun
+        name:                str
+                             parameter name
+        delta:               complex
+                             scale increment used for the evolution carried out after a current otimal parameter value for parameter ```name``` has been found
+        evo_steps:           int
+                             numer of evolution steps carried out after a current otimal parameter value for parameter ```name``` has been found
+        test_delta:          complex
+                             scale increment used for the test evolution carried out before the evaluation of cost_fun
+        test_steps:          int
+                             numer of evolution steps carried out before the evaluation of cost_fun
+        line_search_params:  dict
+                             line_search_params['start']=float
+                             line_search_params['inc']=int
+                             line_search_params['maxsteps']=int
+                             initial value, increment and maximum iteration number for the line search
+                             parameter_range=np.linspace(param_range)
+        precision:           float
+                             optimization stops if parameter is converged within ```precision```
+        pinv:                float (1E-200)
+                             pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
+        tol:                 float (1E-10):
+                             precision parameter for calculating the reduced density matrices during truncation
+        Dthresh:             float (1E-6)
+                             threshold parameter; if the truncated weight of the last truncation is larger than Dthres,
+                             the bond dimension D is increased by Dinc; if D is already at its maximally allowed value, 
+                             D is not changed
+        trunc:               float (1E-10)
+                             truncation threshold during regauging; all Schmidt-values smaller than trunc will be removed, irrespective
+                             of the maximally allowed bond-dimension
+        Dinc:                int (1) 
+                             bond-dimension increment
+        ncv:                 int (30)nn
+                             number of krylov vectors to be used when calculating the transfer-matrix eigenvectors during truncation
+        numeig:              int (6)
+                             number of eigenvector-eigenvalue pairs of the transfer-matrix to be calculated 
+        thresh:              float (1E-10)
+                             related to printing some warnings; not relevant
+
+        Returns:
+        -----------------------------
+        (opt_param_values,accumulated_param_values,energies)
+
+        opt_param_values:         dict
+                                  maps str to float; keys are str corresponding to the names of the parameters
+                                  values are the parameter values after optimization
+        accumulated_param_values: dict
+                                  keys:   str (parameter names)
+                                  values: np.ndarray: the value of the parameter at each iteration step
+        energies:                 np.ndarray
+                                  the energies at each iteration
+        """
+
         #opt_param={'name':'cutoff','delta':0.001j,'evo_steps':20,'test_delta':0.01j,'test_steps':5,'range':{'start':0.5,'stop':2.5,'num':10}},\
 
         opt_param_values={name:None}
@@ -548,7 +632,7 @@ class cMERA(object):
         accumulated_param_values={name:[]}
         accumulated_param_values.update({p:[] for p in other_parameter_values.keys()})
         for step in range(maxsteps):
-            argmin,energies,param_values=self._lineSearch(cost_fun=cost_fun,cost_fun_params=cost_fun_params,
+            argmin,param_values,energies=self._lineSearch(cost_fun=cost_fun,cost_fun_params=cost_fun_params,
                                                           name=name,
                                                           test_steps=test_steps,
                                                           test_delta=test_delta,
@@ -563,7 +647,7 @@ class cMERA(object):
             output={'D':len(self.lam)}
             output.update(opt_param_values)
             if plot:
-                if len(energies)>1):
+                if len(energies)>1:
                     plt.ion()
                     plt.title(f"optimizing ```{name}```; found mininum at \n {output}")
                     plt.plot(param_values[name],energies)
