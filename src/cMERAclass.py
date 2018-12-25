@@ -623,7 +623,7 @@ class cMERA(object):
                                   the energies at each iteration
         """
 
-        #opt_param={'name':'cutoff','delta':0.001j,'evo_steps':20,'test_delta':0.01j,'test_steps':5,'range':{'start':0.5,'stop':2.5,'num':10}},\
+
 
         opt_param_values={name:None}
         opt_param_values.update(other_parameter_values)
@@ -679,5 +679,72 @@ class cMERA(object):
                     ev_params.update(opt_param_values)
                     self.doStep(**ev_params)
         return opt_param_values,accumulated_param_values,energies
+
+def optimizeGaussianEntangler(cmera,maxsteps=1000,tol=1E-8,incs=None,evo_steps=20,test_steps=6,delta=0.001j,test_delta=0.025j,maxsteps_linesearch=100,cutoff0=0.5,alpha0=0.5,evo_steps0=100,precision=0.001):
+
+    """
+    optimize a gaussian cMERA
+    Parameters:
+    ---------------
+    cmera:      cMERA instance
+    maxsteps:   int
+                maximum number of iteration steps
+    tol:        float
+                desired accuracy of the optimum
+    incs:       np.ndarray or None
+                list of increments for the line search, len(incs)=maxsteps
+    evo_steps:  
+
+    """
+    names=['cutoff','alpha'] #the names of the parameters to be optimized
+    current_values={'cutoff':cutoff0,'alpha':alpha0,'inter':0.0,'invrange':1.0}
+    converged=False
+    accumulated_parameter_values={'cutoff':[],'alpha':[],'inter':[],'invrange':[]}
+    if np.any(incs==None):
+        incs=np.ones(maxsteps)*0.0025
+        incs[0:2]=0.01
+        incs[2:4]=0.0075
+        incs[4:6]=0.005        
+    if len(incs)!=maxsteps:
+        raise ValueError("length of ```incs``` has to be ```maxsteps```")
+    line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch}}
+    line_search_params.update({'alpha':{'maxsteps':maxsteps_linesearch}})
+    
+    diffs={n:1E10 for n in names}
+    for step in range(maxsteps):
+        for name in names:
+            other_values={p:v for p,v in current_values.items() if p!=name}
+            line_search_params[name]['start']=current_values[name]
+            line_search_params[name]['inc']=incs[step]
+            if step==0 and name=='cutoff':
+                evsteps=evo_steps0
+            else:
+                evsteps=evo_steps
+            opt_values,param_values,_=cmera.optimizeParameter(name=name,delta=delta,evo_steps=evsteps,test_steps=test_steps,
+                                                                  test_delta=test_delta,line_search_params=line_search_params[name],
+                                                                  precision=precision,
+                                                                  other_parameter_values=other_values,
+                                                                  maxsteps=4, plot=False)
+
+            for n,v in param_values.items():
+                accumulated_parameter_values[n].extend(v)
                 
+            diffs[name]=np.abs(current_values[name]-opt_values[name])
+            current_values[name]=opt_values[name]
+            plt.plot(accumulated_parameter_values[name])
+            plt.legend([name],fontsize=25,loc='best')
+            plt.draw()
+            plt.show()
+            #cmera.canonize() to get the exact value, you need to canonize; however, to get a rough idea, it's enough to use the
+            #last value of the lambdas
+            print(f'at step {step}: S={-(cmera.lam**2).dot(np.log(cmera.lam**2))}, D={len(cmera.lam)}')
+        if np.max(list(diffs.values()))<tol:
+            converged=True
+            break
+            
+    return 
+
+
+    
+
         
