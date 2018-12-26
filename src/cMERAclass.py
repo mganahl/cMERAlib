@@ -685,14 +685,65 @@ class cMERA(object):
 
 
 class cMERAoptimizer(object):
-    def __init__(self,cmera):
+    def __init__(self,cmera,name='cMERAoptimizer'):
         self.cmera=copy.deepcopy(cmera)
+        self.name=name
+    def save(self,filename):
+        """
+        dump the cMERA instance into a pickle file "filename".pickle
+        Parameters:
+        ------------------
+        filename: str()
+                  the filename (without .pickle ending)
+        """
+        with open(filename+'.pickle','wb') as f:
+            pickle.dump(self,f)
 
     @classmethod
-    def fromExisting(cls,cmera):
-        cls.cmera=copy.deepcopy(cmera)
+    def read(cls,filename):
+        
+        """
+        read a optimization from a pickle file
+        Parameters:
+        ---------------
+        filename: str
+                  the pickle file
+    
+        Returns:
+        ---------------
+        a cMERAoptimizer instance holding the loaded optimization
+        
+        """
+        with open(filename,'rb') as f:
+            cls=pickle.load(f)
         return cls
 
+    
+    def load(self,filename):
+        
+        """
+        load a simulation from a pickle file into the current cMERAoptimizer class
+        overwrites current data
+        Parameters:
+        ---------------
+        filename: str
+                  the pickle file
+
+        Returns:
+        ---------------
+        None
+        
+        """
+        with open(filename,'rb') as f:
+            cls=pickle.load(f)
+        #delete all attribute of self which are not present in cls
+        todelete=[attr for attr in vars(self) if not hasattr(cls,attr)]
+        for attr in todelete:
+            delattr(self,attr)
+            
+        for attr in cls.__dict__.keys():
+            setattr(self,attr,getattr(cls,attr))
+        
     def optimizeGaussianEntangler(self,
                                   maxsteps=20,
                                   optimizerSteps=4,
@@ -707,7 +758,7 @@ class cMERAoptimizer(object):
                                   maxsteps_linesearch=100,
                                   cutoff0=0.5,
                                   alpha0=0.5,
-                                  evo_steps0=100, 
+                                  evo_steps0=60, 
                                   precision=0.001,
                                   pinv=1E-200,
                                   Dthresh=1E-6,
@@ -715,7 +766,7 @@ class cMERAoptimizer(object):
                                   ncv=30,
                                   numeig=6,
                                   thresh=1E-8,
-                                  plot=False):
+                                  savestep=1):
 
         """
         optimize a gaussian cMERA
@@ -749,7 +800,7 @@ class cMERAoptimizer(object):
         line_search_params.update({'alpha':{'maxsteps':maxsteps_linesearch}})
         
         diffs={n:1E10 for n in names}
-        for step in range(maxsteps):
+        for step in range(1,maxsteps+1):
             for name in names:
                 other_values={p:v for p,v in current_values.items() if p!=name}
                 line_search_params[name]['start']=current_values[name]
@@ -758,8 +809,7 @@ class cMERAoptimizer(object):
                     evsteps=evo_steps0
                 else:
                     evsteps=evo_steps
-                cMERA.optimizeParameter
-                opt_values,param_evolution,energy=cmera.optimizeParameter(cost_fun=cmeralib.measure_energy_free_boson_with_cutoff,cost_fun_params={'cutoff':1.0},
+                opt_values,param_evolution,energy=self.cmera.optimizeParameter(cost_fun=cmeralib.measure_energy_free_boson_with_cutoff,cost_fun_params={'cutoff':1.0},
                                                                           name=name,
                                                                           delta=delta,
                                                                           evo_steps=evsteps,
@@ -797,12 +847,13 @@ class cMERAoptimizer(object):
                 plt.show()
                 #cmera.canonize() to get the exact value, you need to canonize; however, to get a rough idea, it's enough to use the
                 #last value of the lambdas
-                print(f'at step {step}: S={-(cmera.lam**2).dot(np.log(cmera.lam**2))}, D={len(cmera.lam)}')
-        
+                print(f'at step {step}: S={-(self.cmera.lam**2).dot(np.log(self.cmera.lam**2))}, D={len(self.cmera.lam)}')
+            
             if (eps>1E-16) and (np.max(list(diffs.values()))<eps):
                 converged=True
                 break
-                
+            if step%savestep==0:
+                self.save(self.name)
         return opt_values,accumulated_parameter_values,accumulated_energies,converged
 
 
