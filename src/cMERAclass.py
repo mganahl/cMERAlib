@@ -785,10 +785,12 @@ class cMERAoptimizer(object):
         
         """
         names=['cutoff','alpha'] #the names of the parameters to be optimized
-        current_values={'cutoff':cutoff0,'alpha':alpha0,'inter':0.0,'invrange':1.0}
-        converged=False
-        accumulated_parameter_values={'cutoff':[],'alpha':[],'inter':[],'invrange':[]}
-        accumulated_energies=[]
+
+        self.opt_param_values={'cutoff':cutoff0,'alpha':alpha0,'inter':0.0,'invrange':1.0}
+        self.accumulated_parameter_values={'cutoff':[],'alpha':[],'inter':[],'invrange':[]}
+        self.accumulated_energies=[]
+        self.diffs={n:1E10 for n in names}
+        
         if np.any(incs==None):
             incs=np.ones(maxsteps)*0.0025
             incs[0:2]=0.01
@@ -798,18 +800,18 @@ class cMERAoptimizer(object):
             raise ValueError("length of ```incs``` has to be ```maxsteps```")
         line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch}}
         line_search_params.update({'alpha':{'maxsteps':maxsteps_linesearch}})
-        
-        diffs={n:1E10 for n in names}
+
+        converged=False                
         for step in range(1,maxsteps+1):
             for name in names:
-                other_values={p:v for p,v in current_values.items() if p!=name}
-                line_search_params[name]['start']=current_values[name]
+                other_values={p:v for p,v in self.opt_param_values.items() if p!=name}
+                line_search_params[name]['start']=self.opt_param_values[name]
                 line_search_params[name]['inc']=incs[step]
                 if step==0 and name=='cutoff':
                     evsteps=evo_steps0
                 else:
                     evsteps=evo_steps
-                opt_values,param_evolution,energy=self.cmera.optimizeParameter(cost_fun=cmeralib.measure_energy_free_boson_with_cutoff,cost_fun_params={'cutoff':1.0},
+                opt_values,param_evolution,energies=self.cmera.optimizeParameter(cost_fun=cmeralib.measure_energy_free_boson_with_cutoff,cost_fun_params={'cutoff':1.0},
                                                                           name=name,
                                                                           delta=delta,
                                                                           evo_steps=evsteps,
@@ -830,11 +832,11 @@ class cMERAoptimizer(object):
                                                                           plot=False)
         
                 for n,v in param_evolution.items():
-                    accumulated_parameter_values[n].extend(v)
-                accumulated_energies.extend(energy)
-                    
-                diffs[name]=np.abs(current_values[name]-opt_values[name])
-                current_values[name]=opt_values[name]
+                    self.accumulated_parameter_values[n].extend(v)
+                self.accumulated_energies.extend(energies)
+                self.diffs[name]=np.abs(self.opt_param_values[name]-opt_values[name])
+                self.opt_param_values[name]=opt_values[name]
+                
                 plt.figure(figsize=(10,4))
                 plt.subplot(1,2,1)
                 plt.plot(accumulated_parameter_values[name])
