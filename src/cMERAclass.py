@@ -802,7 +802,7 @@ class cMERAoptimizer(object):
         line_search_params.update({'alpha':{'maxsteps':maxsteps_linesearch}})
 
         converged=False                
-        for step in range(1,maxsteps+1):
+        for step in range(maxsteps):
             for name in names:
                 other_values={p:v for p,v in self.opt_param_values.items() if p!=name}
                 line_search_params[name]['start']=self.opt_param_values[name]
