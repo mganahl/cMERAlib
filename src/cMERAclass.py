@@ -681,3 +681,5 @@ class cMERA(object):
         return opt_param_values,accumulated_param_values,energies
                 
         
+
+    
