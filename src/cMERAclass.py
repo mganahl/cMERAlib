@@ -793,9 +793,9 @@ class cMERAoptimizer(object):
         
         if np.any(incs==None):
             incs=np.ones(maxsteps)*0.0025
-            incs[0:2]=0.01
-            incs[2:4]=0.0075
-            incs[4:6]=0.005        
+            incs[0:min(2,maxsteps)]=0.01
+            incs[min(2,maxsteps):min(4,maxsteps)]=0.0075
+            incs[min(4,maxsteps):min(6,maxsteps)]=0.005        
         if len(incs)!=maxsteps:
             raise ValueError("length of ```incs``` has to be ```maxsteps```")
         line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch}}
