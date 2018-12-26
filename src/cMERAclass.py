@@ -680,7 +680,36 @@ class cMERA(object):
                     self.doStep(**ev_params)
         return opt_param_values,accumulated_param_values,energies
 
-def optimizeGaussianEntangler(cmera,maxsteps=20,tol=1E-8,incs=None,evo_steps=20,test_steps=6,delta=0.001j,test_delta=0.025j,maxsteps_linesearch=100,cutoff0=0.5,alpha0=0.5,evo_steps0=100,precision=0.001):
+
+class cMERAoptimizer(object):
+    def __init__(self,Dmax=32,pinv=1E-200,tol=1E-12,Dtresh=1E-6,trunc=1E-8,Dinc=1,numeig=6,thresh=1E-8):
+        self.pinv=pinv
+        self.tol=tol
+        self.Dthresh=Dthresh
+        self.trunc=trunc
+        self.Dinc=Dinc
+        init_params=dict(cutoff=1.0#will be overwritten later ,
+                         alpha=0.25#overwritten later,
+                         inter=0.0,
+                         invrange=1.0,
+                         operators=['n','n'],
+                         delta=0.001*1.0j,
+                         nwarmup=0, #no warmup is done
+                         Dmax=Dmax,
+                         dtype=complex)
+        self.cmera=cMERA(**init_params)#initialize the simulation
+
+    @classmethod
+    def fromExisting(cls,cmera,pinv=1E-200,tol=1E-12,Dtresh=1E-6,trunc=1E-8,Dinc=1,numeig=6,thresh=1E-8):
+        cls.pinv=pinv
+        cls.tol=tol
+        cls.Dthresh=Dthresh
+        cls.trunc=trunc
+        cls.Dinc=Dinc
+        cls.cmera=cmera
+    return cls
+
+    def optimizeGaussianEntangler(self,maxsteps=20,tol=1E-12,trunc=1E-10,incs=None,evo_steps=20,test_steps=6,delta=0.001j,test_delta=0.025j,maxsteps_linesearch=100,cutoff0=0.5,alpha0=0.5,evo_steps0=100,precision=0.001):
 
     """
     optimize a gaussian cMERA
@@ -722,10 +751,12 @@ def optimizeGaussianEntangler(cmera,maxsteps=20,tol=1E-8,incs=None,evo_steps=20,
             else:
                 evsteps=evo_steps
             opt_values,param_evolution,energy=cmera.optimizeParameter(name=name,delta=delta,evo_steps=evsteps,test_steps=test_steps,
-                                                                      test_delta=test_delta,line_search_params=line_search_params[name],
+                                                                      test_delta=test_delta,
+                                                                      line_search_params=line_search_params[name],
                                                                       precision=precision,
                                                                       other_parameter_values=other_values,
-                                                                      maxsteps=4, plot=False)
+                                                                      maxsteps=4,
+                                                                      plot=False)
 
             for n,v in param_evolution.items():
                 accumulated_parameter_values[n].extend(v)
@@ -746,11 +777,12 @@ def optimizeGaussianEntangler(cmera,maxsteps=20,tol=1E-8,incs=None,evo_steps=20,
             #cmera.canonize() to get the exact value, you need to canonize; however, to get a rough idea, it's enough to use the
             #last value of the lambdas
             print(f'at step {step}: S={-(cmera.lam**2).dot(np.log(cmera.lam**2))}, D={len(cmera.lam)}')
-        if np.max(list(diffs.values()))<tol:
+
+        if (tol>1E-16) and (np.max(list(diffs.values()))<tol):
             converged=True
             break
             
-    return opt_values,accumulated_parameter_values,accumulated_energies
+    return opt_values,accumulated_parameter_values,accumulated_energies,converged
 
 
     
