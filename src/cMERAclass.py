@@ -632,6 +632,7 @@ class cMERA(object):
         opt_param_values.update(other_parameter_values)
         search_params=copy.deepcopy(line_search_params)
         previous_value=1E10
+        accumulated_energies=[]
         accumulated_param_values={name:[]}
         accumulated_param_values.update({p:[] for p in other_parameter_values.keys()})
         for step in range(maxsteps):
@@ -645,15 +646,16 @@ class cMERA(object):
                                                           Dinc=Dinc,ncv=ncv,numeig=numeig,thresh=thresh)
             for n,v in param_values.items():
                 accumulated_param_values[n].extend(v)
+            accumulated_energies.extend(energies)
             search_params['start']=argmin[name]
             opt_param_values[name]=argmin[name]
             output={'D':len(self.lam)}
             output.update(opt_param_values)
             if plot:
-                if len(energies)>1:
+                if len(accumulated_energies)>1:
                     plt.ion()
                     plt.title(f"optimizing ```{name}```; found mininum at \n {output}")
-                    plt.plot(param_values[name],energies)
+                    plt.plot(param_values[name],accumulated_energies)
                     plt.legend([name],fontsize=25,loc='best')
                     plt.draw()
                     plt.show()
@@ -681,7 +683,7 @@ class cMERA(object):
                                    thresh=thresh)
                     ev_params.update(opt_param_values)
                     self.doStep(**ev_params)
-        return opt_param_values,accumulated_param_values,energies
+        return opt_param_values,accumulated_param_values,accumulated_energies
 
 
 class cMERAoptimizer(object):
@@ -830,7 +832,7 @@ class cMERAoptimizer(object):
                                                                           thresh=thresh,
                                                                           maxsteps=optimizerSteps,
                                                                           plot=False)
-        
+
                 for n,v in param_evolution.items():
                     self.accumulated_parameter_values[n].extend(v)
                 self.accumulated_energies.extend(energies)
