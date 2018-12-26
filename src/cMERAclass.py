@@ -589,6 +589,9 @@ class cMERA(object):
                              parameter_range=np.linspace(param_range)
         precision:           float
                              optimization stops if parameter is converged within ```precision```
+        other_parameter_values: dict
+                                dictionary mapping parameter names (str) to values (float or complex);
+                                the dictionary contains the values of all non-optimized parameters
         pinv:                float (1E-200)
                              pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
         tol:                 float (1E-10):
@@ -682,107 +685,125 @@ class cMERA(object):
 
 
 class cMERAoptimizer(object):
-    def __init__(self,Dmax=32,pinv=1E-200,tol=1E-12,Dtresh=1E-6,trunc=1E-8,Dinc=1,numeig=6,thresh=1E-8):
-        self.pinv=pinv
-        self.tol=tol
-        self.Dthresh=Dthresh
-        self.trunc=trunc
-        self.Dinc=Dinc
-        init_params=dict(cutoff=1.0#will be overwritten later ,
-                         alpha=0.25#overwritten later,
-                         inter=0.0,
-                         invrange=1.0,
-                         operators=['n','n'],
-                         delta=0.001*1.0j,
-                         nwarmup=0, #no warmup is done
-                         Dmax=Dmax,
-                         dtype=complex)
-        self.cmera=cMERA(**init_params)#initialize the simulation
+    def __init__(self,cmera):
+        self.cmera=copy.deepcopy(cmera)
 
     @classmethod
-    def fromExisting(cls,cmera,pinv=1E-200,tol=1E-12,Dtresh=1E-6,trunc=1E-8,Dinc=1,numeig=6,thresh=1E-8):
-        cls.pinv=pinv
-        cls.tol=tol
-        cls.Dthresh=Dthresh
-        cls.trunc=trunc
-        cls.Dinc=Dinc
-        cls.cmera=cmera
-    return cls
+    def fromExisting(cls,cmera):
+        cls.cmera=copy.deepcopy(cmera)
+        return cls
 
-    def optimizeGaussianEntangler(self,maxsteps=20,tol=1E-12,trunc=1E-10,incs=None,evo_steps=20,test_steps=6,delta=0.001j,test_delta=0.025j,maxsteps_linesearch=100,cutoff0=0.5,alpha0=0.5,evo_steps0=100,precision=0.001):
+    def optimizeGaussianEntangler(self,
+                                  maxsteps=20,
+                                  optimizerSteps=4,
+                                  eps=1E-12,
+                                  trunc=1E-10,
+                                  tol=1E-12,
+                                  incs=None,
+                                  evo_steps=20,
+                                  test_steps=6,
+                                  delta=0.001j,
+                                  test_delta=0.025j,
+                                  maxsteps_linesearch=100,
+                                  cutoff0=0.5,
+                                  alpha0=0.5,
+                                  evo_steps0=100, 
+                                  precision=0.001,
+                                  pinv=1E-200,
+                                  Dthresh=1E-6,
+                                  Dinc=1,
+                                  ncv=30,
+                                  numeig=6,
+                                  thresh=1E-8,
+                                  plot=False):
 
-    """
-    optimize a gaussian cMERA
-    Parameters:
-    ---------------
-    cmera:      cMERA instance
-    maxsteps:   int
-                maximum number of iteration steps
-    tol:        float
-                desired accuracy of the optimum
-    incs:       np.ndarray or None
-                list of increments for the line search, len(incs)=maxsteps
-    evo_steps:  
-
-    """
-    names=['cutoff','alpha'] #the names of the parameters to be optimized
-    current_values={'cutoff':cutoff0,'alpha':alpha0,'inter':0.0,'invrange':1.0}
-    converged=False
-    accumulated_parameter_values={'cutoff':[],'alpha':[],'inter':[],'invrange':[]}
-    accumulated_energies=[]
-    if np.any(incs==None):
-        incs=np.ones(maxsteps)*0.0025
-        incs[0:2]=0.01
-        incs[2:4]=0.0075
-        incs[4:6]=0.005        
-    if len(incs)!=maxsteps:
-        raise ValueError("length of ```incs``` has to be ```maxsteps```")
-    line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch}}
-    line_search_params.update({'alpha':{'maxsteps':maxsteps_linesearch}})
-    
-    diffs={n:1E10 for n in names}
-    for step in range(maxsteps):
-        for name in names:
-            other_values={p:v for p,v in current_values.items() if p!=name}
-            line_search_params[name]['start']=current_values[name]
-            line_search_params[name]['inc']=incs[step]
-            if step==0 and name=='cutoff':
-                evsteps=evo_steps0
-            else:
-                evsteps=evo_steps
-            opt_values,param_evolution,energy=cmera.optimizeParameter(name=name,delta=delta,evo_steps=evsteps,test_steps=test_steps,
-                                                                      test_delta=test_delta,
-                                                                      line_search_params=line_search_params[name],
-                                                                      precision=precision,
-                                                                      other_parameter_values=other_values,
-                                                                      maxsteps=4,
-                                                                      plot=False)
-
-            for n,v in param_evolution.items():
-                accumulated_parameter_values[n].extend(v)
-            accumulated_energies.extend(energy)
+        """
+        optimize a gaussian cMERA
+        Parameters:
+        ---------------
+        cmera:      cMERA instance
+        maxsteps:   int
+                    maximum number of iteration steps
+        optimizerSteps:  int 
+                         number of individual optimization steps per parameter in the optimizer
+        eps:        float
+                    desired accuracy of the optimum
+        incs:       np.ndarray or None
+                    list of increments for the line search, len(incs)=maxsteps
+        evo_steps:  
+        
+        """
+        names=['cutoff','alpha'] #the names of the parameters to be optimized
+        current_values={'cutoff':cutoff0,'alpha':alpha0,'inter':0.0,'invrange':1.0}
+        converged=False
+        accumulated_parameter_values={'cutoff':[],'alpha':[],'inter':[],'invrange':[]}
+        accumulated_energies=[]
+        if np.any(incs==None):
+            incs=np.ones(maxsteps)*0.0025
+            incs[0:2]=0.01
+            incs[2:4]=0.0075
+            incs[4:6]=0.005        
+        if len(incs)!=maxsteps:
+            raise ValueError("length of ```incs``` has to be ```maxsteps```")
+        line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch}}
+        line_search_params.update({'alpha':{'maxsteps':maxsteps_linesearch}})
+        
+        diffs={n:1E10 for n in names}
+        for step in range(maxsteps):
+            for name in names:
+                other_values={p:v for p,v in current_values.items() if p!=name}
+                line_search_params[name]['start']=current_values[name]
+                line_search_params[name]['inc']=incs[step]
+                if step==0 and name=='cutoff':
+                    evsteps=evo_steps0
+                else:
+                    evsteps=evo_steps
+                cMERA.optimizeParameter
+                opt_values,param_evolution,energy=cmera.optimizeParameter(cost_fun=cmeralib.measure_energy_free_boson_with_cutoff,cost_fun_params={'cutoff':1.0},
+                                                                          name=name,
+                                                                          delta=delta,
+                                                                          evo_steps=evsteps,
+                                                                          test_delta=test_delta,
+                                                                          test_steps=test_steps,
+                                                                          line_search_params=line_search_params[name],
+                                                                          precision=precision,
+                                                                          other_parameter_values=other_values,                                                                      
+                                                                          pinv=pinv,
+                                                                          tol=tol,
+                                                                          Dthresh=Dthresh,
+                                                                          trunc=trunc,
+                                                                          Dinc=Dinc,
+                                                                          ncv=ncv,
+                                                                          numeig=numeig,
+                                                                          thresh=thresh,
+                                                                          maxsteps=optimizerSteps,
+                                                                          plot=False)
+        
+                for n,v in param_evolution.items():
+                    accumulated_parameter_values[n].extend(v)
+                accumulated_energies.extend(energy)
+                    
+                diffs[name]=np.abs(current_values[name]-opt_values[name])
+                current_values[name]=opt_values[name]
+                plt.figure(figsize=(10,4))
+                plt.subplot(1,2,1)
+                plt.plot(accumulated_parameter_values[name])
+                plt.legend([name],fontsize=25,loc='best')
+                plt.subplot(1,2,2)
+                plt.plot(accumulated_energies)
+                plt.legend(['energy'])
+        
+                plt.draw()
+                plt.show()
+                #cmera.canonize() to get the exact value, you need to canonize; however, to get a rough idea, it's enough to use the
+                #last value of the lambdas
+                print(f'at step {step}: S={-(cmera.lam**2).dot(np.log(cmera.lam**2))}, D={len(cmera.lam)}')
+        
+            if (eps>1E-16) and (np.max(list(diffs.values()))<eps):
+                converged=True
+                break
                 
-            diffs[name]=np.abs(current_values[name]-opt_values[name])
-            current_values[name]=opt_values[name]
-            plt.figure(figsize=(10,4))
-            plt.subplot(1,2,1)
-            plt.plot(accumulated_parameter_values[name])
-            plt.legend([name],fontsize=25,loc='best')
-            plt.subplot(1,2,2)
-            plt.plot(accumulated_energies)
-            plt.legend(['energy'])
-
-            plt.draw()
-            plt.show()
-            #cmera.canonize() to get the exact value, you need to canonize; however, to get a rough idea, it's enough to use the
-            #last value of the lambdas
-            print(f'at step {step}: S={-(cmera.lam**2).dot(np.log(cmera.lam**2))}, D={len(cmera.lam)}')
-
-        if (tol>1E-16) and (np.max(list(diffs.values()))<tol):
-            converged=True
-            break
-            
-    return opt_values,accumulated_parameter_values,accumulated_energies,converged
+        return opt_values,accumulated_parameter_values,accumulated_energies,converged
 
 
     
