@@ -839,10 +839,10 @@ class cMERAoptimizer(object):
                 
                 plt.figure(figsize=(10,4))
                 plt.subplot(1,2,1)
-                plt.plot(accumulated_parameter_values[name])
+                plt.plot(self.accumulated_parameter_values[name])
                 plt.legend([name],fontsize=25,loc='best')
                 plt.subplot(1,2,2)
-                plt.plot(accumulated_energies)
+                plt.plot(self.accumulated_energies)
                 plt.legend(['energy'])
         
                 plt.draw()
@@ -856,7 +856,7 @@ class cMERAoptimizer(object):
                 break
             if step%savestep==0:
                 self.save(self.name)
-        return opt_values,accumulated_parameter_values,accumulated_energies,converged
+        return self.opt_param_values,self.accumulated_parameter_values,self.accumulated_energies,converged
 
 
     
