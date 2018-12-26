@@ -680,7 +680,7 @@ class cMERA(object):
                     self.doStep(**ev_params)
         return opt_param_values,accumulated_param_values,energies
 
-def optimizeGaussianEntangler(cmera,maxsteps=1000,tol=1E-8,incs=None,evo_steps=20,test_steps=6,delta=0.001j,test_delta=0.025j,maxsteps_linesearch=100,cutoff0=0.5,alpha0=0.5,evo_steps0=100,precision=0.001):
+def optimizeGaussianEntangler(cmera,maxsteps=20,tol=1E-8,incs=None,evo_steps=20,test_steps=6,delta=0.001j,test_delta=0.025j,maxsteps_linesearch=100,cutoff0=0.5,alpha0=0.5,evo_steps0=100,precision=0.001):
 
     """
     optimize a gaussian cMERA
@@ -700,6 +700,7 @@ def optimizeGaussianEntangler(cmera,maxsteps=1000,tol=1E-8,incs=None,evo_steps=2
     current_values={'cutoff':cutoff0,'alpha':alpha0,'inter':0.0,'invrange':1.0}
     converged=False
     accumulated_parameter_values={'cutoff':[],'alpha':[],'inter':[],'invrange':[]}
+    accumulated_energies=[]
     if np.any(incs==None):
         incs=np.ones(maxsteps)*0.0025
         incs[0:2]=0.01
@@ -720,19 +721,26 @@ def optimizeGaussianEntangler(cmera,maxsteps=1000,tol=1E-8,incs=None,evo_steps=2
                 evsteps=evo_steps0
             else:
                 evsteps=evo_steps
-            opt_values,param_values,_=cmera.optimizeParameter(name=name,delta=delta,evo_steps=evsteps,test_steps=test_steps,
-                                                                  test_delta=test_delta,line_search_params=line_search_params[name],
-                                                                  precision=precision,
-                                                                  other_parameter_values=other_values,
-                                                                  maxsteps=4, plot=False)
+            opt_values,param_evolution,energy=cmera.optimizeParameter(name=name,delta=delta,evo_steps=evsteps,test_steps=test_steps,
+                                                                      test_delta=test_delta,line_search_params=line_search_params[name],
+                                                                      precision=precision,
+                                                                      other_parameter_values=other_values,
+                                                                      maxsteps=4, plot=False)
 
-            for n,v in param_values.items():
+            for n,v in param_evolution.items():
                 accumulated_parameter_values[n].extend(v)
+            accumulated_energies.extend(energy)
                 
             diffs[name]=np.abs(current_values[name]-opt_values[name])
             current_values[name]=opt_values[name]
+            plt.figure(figsize=(10,4))
+            plt.subplot(1,2,1)
             plt.plot(accumulated_parameter_values[name])
             plt.legend([name],fontsize=25,loc='best')
+            plt.subplot(1,2,2)
+            plt.plot(accumulated_energies)
+            plt.legend(['energy'])
+
             plt.draw()
             plt.show()
             #cmera.canonize() to get the exact value, you need to canonize; however, to get a rough idea, it's enough to use the
@@ -742,7 +750,7 @@ def optimizeGaussianEntangler(cmera,maxsteps=1000,tol=1E-8,incs=None,evo_steps=2
             converged=True
             break
             
-    return 
+    return opt_values,accumulated_parameter_values,accumulated_energies
 
 
     
