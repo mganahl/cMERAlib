@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import math
 import warnings
 import re
+import random
 from pprint import pprint
 comm=lambda x,y:np.dot(x,y)-np.dot(y,x)
 anticomm=lambda x,y:np.dot(x,y)+np.dot(y,x)
@@ -687,9 +688,25 @@ class cMERA(object):
 
 
 class cMERAoptimizer(object):
-    def __init__(self,cmera,name='cMERAoptimizer'):
+    def __init__(self,cmera,name='cMERAoptimizer',cutoff=0.5,alpha=0.7,inter=0.0,invrange=1.0):
+        self._parameternames=['cutoff','alpha','inter','invrange']
+        if inter!=0.0:
+            raise ValueError('inter!=0.0 not yet implemented')
         self.cmera=copy.deepcopy(cmera)
         self.name=name
+        self._it=0
+        self.opt_param_values={'cutoff':cutoff,'alpha':alpha,'inter':inter,'invrange':invrange}
+        self.accumulated_parameter_values={n:[] for n in self._parameternames}
+        self.accumulated_energies=[]
+        self.diffs={n:1E10 for n in self._parameternames}
+        
+    def reset(self,d={'cutoff':random.random(),'alpha':random.random(),'inter':0.0,'invrange':1.0}):
+        self._it=0
+        self.opt_param_values=copy.deepcopy(d)
+        self.accumulated_parameter_values={n:[] for n in self._parameternames}
+        self.accumulated_energies=[]
+        self.diffs={n:1E10 for n in self._parameternames}
+
     def save(self,filename):
         """
         dump the cMERA instance into a pickle file "filename".pickle
@@ -758,8 +775,6 @@ class cMERAoptimizer(object):
                                   delta=0.001j,
                                   test_delta=0.025j,
                                   maxsteps_linesearch=100,
-                                  cutoff0=0.5,
-                                  alpha0=0.5,
                                   evo_steps0=60, 
                                   precision=0.001,
                                   pinv=1E-200,
@@ -787,29 +802,23 @@ class cMERAoptimizer(object):
         
         """
         names=['cutoff','alpha'] #the names of the parameters to be optimized
-
-        self.opt_param_values={'cutoff':cutoff0,'alpha':alpha0,'inter':0.0,'invrange':1.0}
-        self.accumulated_parameter_values={'cutoff':[],'alpha':[],'inter':[],'invrange':[]}
-        self.accumulated_energies=[]
-        self.diffs={n:1E10 for n in names}
         
         if np.any(incs==None):
-            incs=np.ones(maxsteps)*0.0025
+            incs=np.ones(maxsteps)*0.00125
             incs[0:min(2,maxsteps)]=0.01
             incs[min(2,maxsteps):min(4,maxsteps)]=0.0075
-            incs[min(4,maxsteps):min(6,maxsteps)]=0.005        
+            incs[min(4,maxsteps):min(6,maxsteps)]=0.005
+            incs[min(6,maxsteps):min(8,maxsteps)]=0.0025                    
         if len(incs)!=maxsteps:
             raise ValueError("length of ```incs``` has to be ```maxsteps```")
-        line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch}}
-        line_search_params.update({'alpha':{'maxsteps':maxsteps_linesearch}})
-
-        converged=False                
-        for step in range(maxsteps):
+        line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch},'alpha':{'maxsteps':maxsteps_linesearch}}
+        converged=False
+        while self._it<maxsteps:
             for name in names:
                 other_values={p:v for p,v in self.opt_param_values.items() if p!=name}
                 line_search_params[name]['start']=self.opt_param_values[name]
-                line_search_params[name]['inc']=incs[step]
-                if step==0 and name=='cutoff':
+                line_search_params[name]['inc']=incs[self._it]
+                if self._it==0 and name=='cutoff':
                     evsteps=evo_steps0
                 else:
                     evsteps=evo_steps
@@ -839,25 +848,37 @@ class cMERAoptimizer(object):
                 self.diffs[name]=np.abs(self.opt_param_values[name]-opt_values[name])
                 self.opt_param_values[name]=opt_values[name]
                 
-                plt.figure(figsize=(10,4))
-                plt.subplot(1,2,1)
+                plt.figure(1,figsize=(12,3))
+                if name=='cutoff':
+                    index=1
+                elif name=='alpha':
+                    index=2
+                ax=plt.subplot(1,3,index)
+                ax.clear()
                 plt.plot(self.accumulated_parameter_values[name])
-                plt.legend([name],fontsize=25,loc='best')
-                plt.subplot(1,2,2)
+                plt.legend([name],fontsize=12,loc='best')
+                    
+                ax2=plt.subplot(1,3,3)
+                ax2.clear()
                 plt.plot(self.accumulated_energies)
-                plt.legend(['energy'])
+                plt.legend(['energy'],loc='best',fontsize=12)
         
                 plt.draw()
                 plt.show()
+                plt.tight_layout()
+                plt.pause(0.01)
                 #cmera.canonize() to get the exact value, you need to canonize; however, to get a rough idea, it's enough to use the
                 #last value of the lambdas
-                print(f'at step {step}: S={-(self.cmera.lam**2).dot(np.log(self.cmera.lam**2))}, D={len(self.cmera.lam)}')
+                print(f'at step {self._it}: S={-(self.cmera.lam**2).dot(np.log(self.cmera.lam**2))}, D={len(self.cmera.lam)}')
+                
             
             if (eps>1E-16) and (np.max(list(diffs.values()))<eps):
                 converged=True
                 break
-            if step%savestep==0:
+            if self._it%savestep==0:
+                print(self.name)
                 self.save(self.name)
+            self._it+=1
         return self.opt_param_values,self.accumulated_parameter_values,self.accumulated_energies,converged
 
 
