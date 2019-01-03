@@ -543,41 +543,56 @@ class cMERA(object):
 
 
     def optimizeParameter(self,cost_fun=cmeralib.measure_energy_free_boson_with_cutoff,cost_fun_params={'cutoff':1.0},
-                          name='cutoff',delta=0.001j,evo_steps=20,test_delta=0.01j,test_steps=5,
+                          name='cutoff',
+                          delta=0.001j,
+                          evo_steps=20,
+                          test_delta=0.01j,
+                          test_steps=5,
                           line_search_params={'start':0.5,'inc':0.02,'maxsteps':50},
                           precision=0.001,
                           other_parameter_values={'alpha':None,'inter':0.0,'invrange':1.0},
                           maxsteps=4,
-                          pinv=1E-200,tol=1E-12,Dthresh=1E-6,trunc=1E-12,
-                          Dinc=1,ncv=30,
-                          numeig=6,thresh=1E-8,
+                          pinv=1E-200,
+                          tol=1E-12,
+                          Dthresh=1E-6,
+                          trunc=1E-12,
+                          Dinc=1,
+                          ncv=30,
+                          numeig=6,
+                          thresh=1E-8,
                           plot=False):
 
 
         """
-        optimization routine for cmera
+        optimization routine for cMERA class
         finds the optimal value of a given parameter of the entangler, as determined by
-        cost_fun, by iteratively evolving the cmera 
+        cost_fun, by iteratively evolving the cMERA. The optimization proceeds by 
+        first evolving the given cMERA instance over a scale ```S=test_steps*test_delta```, and 
+        then evaluating the cost-function. Using a line-search algorithm, the cMERA instance
+        is repeatedly evolved up to ```S``` for different values of the parameter ```name```
+        (always starting at the same cMERA state), until a minimum of the costfunction ```cost_fun```
+        has been found. The resulting minimal value of ```name``` is then used to carry out
+        an evolution over a scale ```S_2=delta*evo_steps``` of the initial state of the
+        cMERA instance, thereby changing it from its initial value.
 
         Parameters:
         -----------------------
         cost_fun:            callable
                              the cost function with respect to which the optimal parameter is found
                              the call signature of cost_fun has to be 
-                             val=cost_fun(Ql,Rl,lam,**cost_tun_params)
+                             val=cost_fun(Ql,Rl,lam,**cost_fun_params)
                              val is of type float
                              Ql,Rl: np.ndarray of shape (D,D)
                              rdens: np.ndarray of shape (D,D)
                              Ql,Rl are left orthogonal cMPS matrices, rdens is the corresponding right reduced density matrix
-                             the cMERA class
         cost_fun_params:     dict
                              other parameters of cost_fun
         name:                str
-                             parameter name
+                             name of the parameter to be optimized; for gaussian entangler, this can currently be ```name = 'cutoff'``` or ```name = 'alpha'```
         delta:               complex
-                             scale increment used for the evolution carried out after a current otimal parameter value for parameter ```name``` has been found
+                             scale increment used for the evolution carried out after the currently optimal parameter value for parameter ```name``` has been found
         evo_steps:           int
-                             numer of evolution steps carried out after a current otimal parameter value for parameter ```name``` has been found
+                             numer of evolution steps carried out after the currently optimal parameter value for parameter ```name``` has been found
         test_delta:          complex
                              scale increment used for the test evolution carried out before the evaluation of cost_fun
         test_steps:          int
@@ -698,14 +713,14 @@ class cMERAoptimizer(object):
         self.opt_param_values={'cutoff':cutoff,'alpha':alpha,'inter':inter,'invrange':invrange}
         self.accumulated_parameter_values={n:[] for n in self._parameternames}
         self.accumulated_energies=[]
-        self.diffs={n:1E10 for n in self._parameternames}
+        self._diffs={n:1E10 for n in self._parameternames}
         
     def reset(self,d={'cutoff':random.random(),'alpha':random.random(),'inter':0.0,'invrange':1.0}):
         self._it=0
         self.opt_param_values=copy.deepcopy(d)
         self.accumulated_parameter_values={n:[] for n in self._parameternames}
         self.accumulated_energies=[]
-        self.diffs={n:1E10 for n in self._parameternames}
+        self._diffs={n:1E10 for n in self._parameternames}
 
     def save(self,filename):
         """
@@ -791,9 +806,9 @@ class cMERAoptimizer(object):
         ---------------
         cmera:      cMERA instance
         maxsteps:   int
-                    maximum number of iteration steps
+                    maximum number of outer iteration steps
         optimizerSteps:  int 
-                         number of individual optimization steps per parameter in the optimizer
+                         number of inner optimization steps per parameter in the optimizer
         eps:        float
                     desired accuracy of the optimum
         incs:       np.ndarray or None
@@ -801,14 +816,39 @@ class cMERAoptimizer(object):
         evo_steps:  
         
         """
+        #save parameter values so we can later retrieve them if neccessary
+        self.simulation_params=dict(maxsteps=maxsteps,
+                                    optimizerSteps=optimizerSteps,
+                                    eps=eps,
+                                    trunc=trunc,
+                                    tol=tol,
+                                    incs=incs,
+                                    evo_steps=evo_steps,
+                                    test_steps=test_steps,
+                                    delta=delta,
+                                    test_delta=test_delta,
+                                    maxsteps_linesearch=maxsteps_linesearch,
+                                    evo_steps0=evo_steps0, 
+                                    precision=precision,
+                                    pinv=pinv,
+                                    Dthresh=Dthresh,
+                                    Dinc=Dinc,
+                                    ncv=ncv,
+                                    numeig=numeig,
+                                    thresh=thresh,
+                                    savestep=savestep)
+        with open(self.name+'_parameters.pickle','wb') as f:
+            pickle.dump(self.simulation_params,f)
+        
         names=['cutoff','alpha'] #the names of the parameters to be optimized
         
         if np.any(incs==None):
-            incs=np.ones(maxsteps)*0.00125
+            incs=np.ones(maxsteps)*0.000625
             incs[0:min(2,maxsteps)]=0.01
             incs[min(2,maxsteps):min(4,maxsteps)]=0.0075
             incs[min(4,maxsteps):min(6,maxsteps)]=0.005
-            incs[min(6,maxsteps):min(8,maxsteps)]=0.0025                    
+            incs[min(6,maxsteps):min(8,maxsteps)]=0.0025
+            incs[min(8,maxsteps):min(10,maxsteps)]=0.00125                   
         if len(incs)!=maxsteps:
             raise ValueError("length of ```incs``` has to be ```maxsteps```")
         line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch},'alpha':{'maxsteps':maxsteps_linesearch}}
@@ -845,21 +885,26 @@ class cMERAoptimizer(object):
                 for n,v in param_evolution.items():
                     self.accumulated_parameter_values[n].extend(v)
                 self.accumulated_energies.extend(energies)
-                self.diffs[name]=np.abs(self.opt_param_values[name]-opt_values[name])
+                self._diffs[name]=np.abs(self.opt_param_values[name]-opt_values[name])
                 self.opt_param_values[name]=opt_values[name]
                 
                 plt.figure(1,figsize=(12,3))
-                if name=='cutoff':
-                    index=1
-                elif name=='alpha':
-                    index=2
-                ax=plt.subplot(1,3,index)
+                # if name=='cutoff':
+                #     index=1
+                # elif name=='alpha':
+                #     index=2
+                ax=plt.subplot(1,3,1)
                 ax.clear()
-                plt.plot(self.accumulated_parameter_values[name])
-                plt.legend([name],fontsize=12,loc='best')
+                plt.plot(self.accumulated_parameter_values['cutoff'])
+                plt.legend(['cutoff'],fontsize=12,loc='best')
+                
+                ax=plt.subplot(1,3,2)                
+                ax.clear()
+                plt.plot(self.accumulated_parameter_values['alpha'])
+                plt.legend(['alpha'],fontsize=12,loc='best')
                     
-                ax2=plt.subplot(1,3,3)
-                ax2.clear()
+                ax=plt.subplot(1,3,3)
+                ax.clear()
                 plt.plot(self.accumulated_energies)
                 plt.legend(['energy'],loc='best',fontsize=12)
         
@@ -872,11 +917,11 @@ class cMERAoptimizer(object):
                 print(f'at step {self._it}: S={-(self.cmera.lam**2).dot(np.log(self.cmera.lam**2))}, D={len(self.cmera.lam)}')
                 
             
-            if (eps>1E-16) and (np.max(list(diffs.values()))<eps):
+            if (eps>1E-16) and (np.max(list(self._diffs.values()))<eps):
                 converged=True
                 break
             if self._it%savestep==0:
-                print(self.name)
+                print('checkpointing optimizer to the file',self.name)
                 self.save(self.name)
             self._it+=1
         return self.opt_param_values,self.accumulated_parameter_values,self.accumulated_energies,converged
