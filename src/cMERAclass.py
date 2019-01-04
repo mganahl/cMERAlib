@@ -539,9 +539,6 @@ class cMERA(object):
         argmin={p:v[minind] for p,v in param_values.items()}
         return argmin,param_values,energies
     
-
-
-
     def optimizeParameter(self,cost_fun=cmeralib.measure_energy_free_boson_with_cutoff,cost_fun_params={'cutoff':1.0},
                           name='cutoff',
                           delta=0.001j,
@@ -574,59 +571,62 @@ class cMERA(object):
         has been found. The resulting minimal value of ```name``` is then used to carry out
         an evolution over a scale ```S_2=delta*evo_steps``` of the initial state of the
         cMERA instance, thereby changing it from its initial value.
+        The loop of optimization-evolution is repeated for ```maxsteps``` steps
 
         Parameters:
         -----------------------
-        cost_fun:            callable
-                             the cost function with respect to which the optimal parameter is found
-                             the call signature of cost_fun has to be 
-                             val=cost_fun(Ql,Rl,lam,**cost_fun_params)
-                             val is of type float
-                             Ql,Rl: np.ndarray of shape (D,D)
-                             rdens: np.ndarray of shape (D,D)
-                             Ql,Rl are left orthogonal cMPS matrices, rdens is the corresponding right reduced density matrix
-        cost_fun_params:     dict
-                             other parameters of cost_fun
-        name:                str
-                             name of the parameter to be optimized; for gaussian entangler, this can currently be ```name = 'cutoff'``` or ```name = 'alpha'```
-        delta:               complex
-                             scale increment used for the evolution carried out after the currently optimal parameter value for parameter ```name``` has been found
-        evo_steps:           int
-                             numer of evolution steps carried out after the currently optimal parameter value for parameter ```name``` has been found
-        test_delta:          complex
-                             scale increment used for the test evolution carried out before the evaluation of cost_fun
-        test_steps:          int
-                             numer of evolution steps carried out before the evaluation of cost_fun
-        line_search_params:  dict
-                             line_search_params['start']=float
-                             line_search_params['inc']=int
-                             line_search_params['maxsteps']=int
-                             initial value, increment and maximum iteration number for the line search
-                             parameter_range=np.linspace(param_range)
-        precision:           float
-                             optimization stops if parameter is converged within ```precision```
+        cost_fun:               callable
+                                the cost function with respect to which the optimal parameter is found
+                                the call signature of cost_fun has to be 
+                                val=cost_fun(Ql,Rl,lam,**cost_fun_params)
+                                val is of type float
+                                Ql,Rl: np.ndarray of shape (D,D)
+                                rdens: np.ndarray of shape (D,D)
+                                Ql,Rl are left orthogonal cMPS matrices, rdens is the corresponding right reduced density matrix
+        cost_fun_params:        dict
+                                other parameters of cost_fun
+        name:                   str
+                                name of the parameter to be optimized; for gaussian entangler, this can currently be ```name = 'cutoff'``` or ```name = 'alpha'```
+        delta:                  complex
+                                scale increment used for the evolution carried out after the currently optimal parameter value for parameter ```name``` has been found
+        evo_steps:              int
+                                numer of evolution steps carried out after the currently optimal parameter value for parameter ```name``` has been found
+        test_delta:             complex
+                                scale increment used for the test evolution carried out before the evaluation of cost_fun
+        test_steps:             int
+                                numer of evlution steps carried out before the evaluation of cost_fun
+        line_search_params:     dict
+                                line_search_params['start']=float
+                                line_search_params['inc']=int
+                                line_search_params['maxsteps']=int
+                                initial value, increment and maximum iteration number for the line search
+                                parameter_range=np.linspace(param_range)
+        precision:              float
+                                optimization stops if parameter is converged within ```precision```
         other_parameter_values: dict
                                 dictionary mapping parameter names (str) to values (float or complex);
                                 the dictionary contains the values of all non-optimized parameters
-        pinv:                float (1E-200)
-                             pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
-        tol:                 float (1E-10):
-                             precision parameter for calculating the reduced density matrices during truncation
-        Dthresh:             float (1E-6)
-                             threshold parameter; if the truncated weight of the last truncation is larger than Dthres,
-                             the bond dimension D is increased by Dinc; if D is already at its maximally allowed value, 
-                             D is not changed
-        trunc:               float (1E-10)
-                             truncation threshold during regauging; all Schmidt-values smaller than trunc will be removed, irrespective
-                             of the maximally allowed bond-dimension
-        Dinc:                int (1) 
-                             bond-dimension increment
-        ncv:                 int (30)nn
-                             number of krylov vectors to be used when calculating the transfer-matrix eigenvectors during truncation
-        numeig:              int (6)
-                             number of eigenvector-eigenvalue pairs of the transfer-matrix to be calculated 
-        thresh:              float (1E-10)
-                             related to printing some warnings; not relevant
+        maxsteps:               int
+                                number of optimization-evolution steps to be carried out
+        pinv:                   float (1E-200)
+                                pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
+        tol:                    float (1E-10):
+                                precision parameter for calculating the reduced density matrices during truncation
+        Dthresh:                float (1E-6)
+                                threshold parameter; if the truncated weight of the last truncation is larger than Dthres,
+                                the bond dimension D is increased by Dinc; if D is already at its maximally allowed value, 
+                                D is not changed
+        trunc:                  float (1E-10)
+                                truncation threshold during regauging; all Schmidt-values smaller than trunc will be removed, irrespective
+                                of the maximally allowed bond-dimension
+        Dinc:                   int (1) 
+                                bond-dimension increment
+        ncv:                    int (30)nn
+                                number of krylov vectors to be used when calculating the transfer-matrix eigenvectors during truncation
+        numeig:                 int (6)
+                                number of eigenvector-eigenvalue pairs of the transfer-matrix to be calculated 
+        thresh:                 float (1E-10)
+                                related to printing some warnings; not relevant
 
         Returns:
         -----------------------------
@@ -777,45 +777,102 @@ class cMERAoptimizer(object):
             
         for attr in cls.__dict__.keys():
             setattr(self,attr,getattr(cls,attr))
-        
-    def optimizeGaussianEntangler(self,
-                                  maxsteps=20,
-                                  optimizerSteps=4,
-                                  eps=1E-12,
-                                  trunc=1E-10,
-                                  tol=1E-12,
-                                  incs=None,
-                                  evo_steps=20,
-                                  test_steps=6,
-                                  delta=0.001j,
-                                  test_delta=0.025j,
-                                  maxsteps_linesearch=100,
-                                  evo_steps0=60, 
-                                  precision=0.001,
-                                  pinv=1E-200,
-                                  Dthresh=1E-6,
-                                  Dinc=1,
-                                  ncv=30,
-                                  numeig=6,
-                                  thresh=1E-8,
-                                  savestep=1):
 
+
+    def optimizeEntangler(self,
+                          names=['cutoff','alpha'],
+                          maxsteps=20,
+                          eps=1E-12,
+                          incs=None,
+                          maxsteps_linesearch=100,
+                          evo_steps0=60,
+                          savestep=1,
+                          cost_fun=cmeralib.measure_energy_free_boson_with_cutoff,
+                          cost_fun_params={'cutoff':1.0},
+                          optimizerSteps=4,
+                          trunc=1E-10,
+                          tol=1E-12,
+                          evo_steps=20,
+                          test_steps=6,
+                          delta=0.001j,
+                          test_delta=0.025j,
+                          precision=0.001,
+                          pinv=1E-200,
+                          Dthresh=1E-6,
+                          Dinc=1,
+                          ncv=30,
+                          numeig=6,
+                          thresh=1E-8):
         """
-        optimize a gaussian cMERA
+        optimize a cMERA entangler
+
         Parameters:
         ---------------
-        cmera:      cMERA instance
-        maxsteps:   int
-                    maximum number of outer iteration steps
-        optimizerSteps:  int 
-                         number of inner optimization steps per parameter in the optimizer
-        eps:        float
-                    desired accuracy of the optimum
-        incs:       np.ndarray or None
-                    list of increments for the line search, len(incs)=maxsteps
-        evo_steps:  
-        
+        names:                  list of str
+                                names of the parameters to be optimized
+        maxsteps:               int
+                                maximum number of outer iteration steps
+        eps:                    float
+                                desired accuracy of values of the optimized parameters
+        incs:                   list or np.ndarray of int, or None
+                                len(incs) has to be maxsteps, otherwise an exception is raised
+                                for each outermost optimization step ```step```, ```incs[step]```
+                                is the fixed increment used in the line search for 
+                                finding the minimal value of the currently optimized parameter
+        maxsteps_linesearch:    int
+                                maximum number of steps after which line search interrupts
+        evo_steps0:             int
+                                same as evo_steps, but used for the very first outermost iteration 
+                                step instead of evo_step
+        savestep:               int
+                                is ```step%savestep==0```, simulation is checkpointed
+
+        Further parameters which are passed on to cMERA.optimizeParamter:
+        ----------------------------------------------------------------------
+        cost_fun:               callable
+                                the cost function with respect to which the optimal parameter is found
+                                the call signature of cost_fun has to be 
+                                val=cost_fun(Ql,Rl,lam,**cost_fun_params)
+                                val is of type float
+                                Ql,Rl: np.ndarray of shape (D,D)
+                                rdens: np.ndarray of shape (D,D)
+                                Ql,Rl are left orthogonal cMPS matrices, rdens is the corresponding right reduced density matrix
+        cost_fun_params:        dict
+                                other parameters of cost_fun
+        delta:                  complex
+                                scale increment used for the evolution carried out after the currently optimal parameter value for parameter ```name``` has been found
+        evo_steps:              int
+                                numer of evolution steps carried out after the currently optimal parameter value for parameter ```name``` has been found
+        test_delta:             complex
+                                scale increment used for the test evolution carried out before the evaluation of cost_fun
+        test_steps:             int
+                                numer of evlution steps carried out before the evaluation of cost_fun
+        precision:              float
+                                optimization stops if parameter is converged within ```precision```
+        optimizerSteps:         int, passed on to maxsteps argument of cMERA.optimizer
+                                number of optimization-evolution steps to be carried out
+        pinv:                   float (1E-200)
+                                pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
+        tol:                    float (1E-10):
+                                precision parameter for calculating the reduced density matrices during truncation
+        Dthresh:                float (1E-6)
+                                threshold parameter; if the truncated weight of the last truncation is larger than Dthres,
+                                the bond dimension D is increased by Dinc; if D is already at its maximally allowed value, 
+                                D is not changed
+        trunc:                  float (1E-10)
+                                truncation threshold during regauging; all Schmidt-values smaller than trunc will be removed, irrespective
+                                of the maximally allowed bond-dimension
+        Dinc:                   int (1) 
+                                bond-dimension increment
+        ncv:                    int (30)nn
+                                number of krylov vectors to be used when calculating the transfer-matrix eigenvectors during truncation
+        numeig:                 int (6)
+                                number of eigenvector-eigenvalue pairs of the transfer-matrix to be calculated 
+        thresh:                 float (1E-10)
+                                related to printing some warnings; not relevant
+                                                        
         """
+            
         #save parameter values so we can later retrieve them if neccessary
         self.simulation_params=dict(maxsteps=maxsteps,
                                     optimizerSteps=optimizerSteps,
@@ -837,10 +894,9 @@ class cMERAoptimizer(object):
                                     numeig=numeig,
                                     thresh=thresh,
                                     savestep=savestep)
+        
         with open(self.name+'_parameters.pickle','wb') as f:
             pickle.dump(self.simulation_params,f)
-        
-        names=['cutoff','alpha'] #the names of the parameters to be optimized
         
         if np.any(incs==None):
             incs=np.ones(maxsteps)*0.000625
@@ -848,7 +904,8 @@ class cMERAoptimizer(object):
             incs[min(2,maxsteps):min(4,maxsteps)]=0.0075
             incs[min(4,maxsteps):min(6,maxsteps)]=0.005
             incs[min(6,maxsteps):min(8,maxsteps)]=0.0025
-            incs[min(8,maxsteps):min(10,maxsteps)]=0.00125                   
+            incs[min(8,maxsteps):min(10,maxsteps)]=0.00125
+            
         if len(incs)!=maxsteps:
             raise ValueError("length of ```incs``` has to be ```maxsteps```")
         line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch},'alpha':{'maxsteps':maxsteps_linesearch}}
@@ -862,7 +919,7 @@ class cMERAoptimizer(object):
                     evsteps=evo_steps0
                 else:
                     evsteps=evo_steps
-                opt_values,param_evolution,energies=self.cmera.optimizeParameter(cost_fun=cmeralib.measure_energy_free_boson_with_cutoff,cost_fun_params={'cutoff':1.0},
+                opt_values,param_evolution,energies=self.cmera.optimizeParameter(cost_fun=cost_fun,cost_fun_params=cost_fun_params,
                                                                           name=name,
                                                                           delta=delta,
                                                                           evo_steps=evsteps,
@@ -881,7 +938,6 @@ class cMERAoptimizer(object):
                                                                           thresh=thresh,
                                                                           maxsteps=optimizerSteps,
                                                                           plot=False)
-
                 for n,v in param_evolution.items():
                     self.accumulated_parameter_values[n].extend(v)
                 self.accumulated_energies.extend(energies)
@@ -925,6 +981,55 @@ class cMERAoptimizer(object):
                 self.save(self.name)
             self._it+=1
         return self.opt_param_values,self.accumulated_parameter_values,self.accumulated_energies,converged
+
+    
+    def optimizeGaussianEntangler(self,
+                                  maxsteps=20,
+                                  optimizerSteps=4,
+                                  eps=1E-12,
+                                  trunc=1E-10,
+                                  tol=1E-12,
+                                  incs=None,
+                                  evo_steps=20,
+                                  test_steps=6,
+                                  delta=0.001j,
+                                  test_delta=0.025j,
+                                  maxsteps_linesearch=100,
+                                  evo_steps0=60, 
+                                  precision=0.001,
+                                  pinv=1E-200,
+                                  Dthresh=1E-6,
+                                  Dinc=1,
+                                  ncv=30,
+                                  numeig=6,
+                                  thresh=1E-8,
+                                  savestep=10):
+        
+        self.optimizeEntangler(names=['cutoff','alpha'],
+                               maxsteps=maxsteps,
+                               eps=eps,
+                               incs=incs,
+                               maxsteps_linesearch=maxsteps_linesearch,
+                               evo_steps0=evo_steps0,
+                               savestep=savestep,
+                               cost_fun=cmeralib.measure_energy_free_boson_with_cutoff,
+                               cost_fun_params={'cutoff':1.0},
+                               optimizerSteps=optimizerSteps,
+                               trunc=trunc,
+                               tol=tol,
+                               evo_steps=evo_steps,
+                               test_steps=test_steps,
+                               delta=delta,
+                               test_delta=test_delta,
+                               precision=precision,
+                               pinv=pinv,
+                               Dthresh=Dthresh,
+                               Dinc=Dinc,
+                               ncv=ncv,
+                               numeig=numeig,
+                               thresh=thresh)
+
+        
 
 
     
