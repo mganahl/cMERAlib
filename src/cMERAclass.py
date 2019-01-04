@@ -705,8 +705,6 @@ class cMERA(object):
 class cMERAoptimizer(object):
     def __init__(self,cmera,name='cMERAoptimizer',cutoff=0.5,alpha=0.7,inter=0.0,invrange=1.0):
         self._parameternames=['cutoff','alpha','inter','invrange']
-        if inter!=0.0:
-            raise ValueError('inter!=0.0 not yet implemented')
         self.cmera=copy.deepcopy(cmera)
         self.name=name
         self._it=0
