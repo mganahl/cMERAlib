@@ -669,9 +669,11 @@ class cMERA(object):
             output.update(opt_param_values)
             if plot:
                 if len(accumulated_energies)>1:
+                    plt.figure(10)
+                    plt.clf()
                     plt.ion()
                     plt.title(f"optimizing ```{name}```; found mininum at \n {output}")
-                    plt.plot(param_values[name],accumulated_energies)
+                    plt.plot(param_values[name],energies)
                     plt.legend([name],fontsize=25,loc='best')
                     plt.draw()
                     plt.show()
@@ -800,7 +802,8 @@ class cMERAoptimizer(object):
                           Dinc=1,
                           ncv=30,
                           numeig=6,
-                          thresh=1E-8):
+                          thresh=1E-8,
+                          plot=False):
         """
         optimize a cMERA entangler
 
@@ -892,6 +895,7 @@ class cMERAoptimizer(object):
                                     numeig=numeig,
                                     thresh=thresh,
                                     savestep=savestep)
+
         
         with open(self.name+'_parameters.pickle','wb') as f:
             pickle.dump(self.simulation_params,f)
@@ -906,7 +910,7 @@ class cMERAoptimizer(object):
             
         if len(incs)!=maxsteps:
             raise ValueError("length of ```incs``` has to be ```maxsteps```")
-        line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch},'alpha':{'maxsteps':maxsteps_linesearch}}
+        line_search_params={'cutoff':{'maxsteps':maxsteps_linesearch},'alpha':{'maxsteps':maxsteps_linesearch},'inter':{'maxsteps':maxsteps_linesearch},'invrange':{'maxsteps':maxsteps_linesearch}}
         converged=False
         while self._it<maxsteps:
             for name in names:
@@ -918,24 +922,24 @@ class cMERAoptimizer(object):
                 else:
                     evsteps=evo_steps
                 opt_values,param_evolution,energies=self.cmera.optimizeParameter(cost_fun=cost_fun,cost_fun_params=cost_fun_params,
-                                                                          name=name,
-                                                                          delta=delta,
-                                                                          evo_steps=evsteps,
-                                                                          test_delta=test_delta,
-                                                                          test_steps=test_steps,
-                                                                          line_search_params=line_search_params[name],
-                                                                          precision=precision,
-                                                                          other_parameter_values=other_values,                                                                      
-                                                                          pinv=pinv,
-                                                                          tol=tol,
-                                                                          Dthresh=Dthresh,
-                                                                          trunc=trunc,
-                                                                          Dinc=Dinc,
-                                                                          ncv=ncv,
-                                                                          numeig=numeig,
-                                                                          thresh=thresh,
-                                                                          maxsteps=optimizerSteps,
-                                                                          plot=False)
+                                                                                 name=name,
+                                                                                 delta=delta,
+                                                                                 evo_steps=evsteps,
+                                                                                 test_delta=test_delta,
+                                                                                 test_steps=test_steps,
+                                                                                 line_search_params=line_search_params[name],
+                                                                                 precision=precision,
+                                                                                 other_parameter_values=other_values,                                                                      
+                                                                                 pinv=pinv,
+                                                                                 tol=tol,
+                                                                                 Dthresh=Dthresh,
+                                                                                 trunc=trunc,
+                                                                                 Dinc=Dinc,
+                                                                                 ncv=ncv,
+                                                                                 numeig=numeig,
+                                                                                 thresh=thresh,
+                                                                                 maxsteps=optimizerSteps,
+                                                                                 plot=plot)
                 for n,v in param_evolution.items():
                     self.accumulated_parameter_values[n].extend(v)
                 self.accumulated_energies.extend(energies)
