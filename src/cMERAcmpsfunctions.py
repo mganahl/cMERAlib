@@ -38,13 +38,14 @@ def toMPS(Q,R,dx):
     
     if not (np.shape(Q)[0]==np.shape(Q)[1]):
         raise ValueError("Q matrix has to be square")
-    if not (np.shape(R)[0]==np.shape(R)[1]):
-        raise ValueError("R matrix has to be square")
     
     D=np.shape(Q)[0]
     matrix=np.zeros((D,D,len(R)+1)).astype(np.result_type(Q,*R))
     matrix[:,:,0]=np.eye(D)+dx*Q
     for n in range(len(R)):
+        if not (np.shape(R[n])[0]==np.shape(R[n])[1]):
+            raise ValueError("R matrix has to be square")
+
         matrix[:,:,n+1]=np.sqrt(dx)*R[n]
     return matrix
 
@@ -594,7 +595,7 @@ def canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=40,numeig=6,
 
     Returns:
     ------------------------------
-    (lam,Ql,Rl,Qr,Rr)
+    (lam,Ql,Rl,Qr,Rr,rest)
 
     lam:   np.ndarray of shape (D,D)
            right dominant eigenvector of the cMPS transfer operator
@@ -1057,13 +1058,45 @@ def calculatePartialPhiCorrelator(Ql,Rl,r,cutoff,dx,N):
         corr[n]=np.tensordot(np.reshape(vec,(D,D)),r,([0,1],[0,1]))
     return corr,vec
 
+
+def calculateReducedDensity(Q,R,N,dx,eps=1E-8,Dmax=50,tol=1E-10,**kwargs):
+    
+    """
+    calculate the reduced density matri of a finite region of length N*dx
+    """
+    
+    D=np.shape(Q)[0]
+    lam,Ql,Rl,Qr,Rr,rest=canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=40,numeig=6,pinv=1E-200,trunc=1E-16,Dmax=Q.shape[0],thresh=1E-10,verbosity=0,**kwargs)    
+    B=toMPS(Qr,Rr,dx)
+    temp=ncon.ncon([np.diag(lam**2),B,B,np.conj(B),np.conj(B)],[[1,5],[1,2,-1],[2,-5,-2],[4,-6,-4],[5,4,-3]])
+    rho=ncon.ncon([rho,np.eye(D)],[[-1,-2,-3,-4,1,2],[1,2]])
+    reachedmax=False
+    for n in range(N):
+        eta,u=np.linalg.eigh(rho)
+        inds=np.nonzero(eta>eps)
+        indarray=np.array(inds[0])
+        if len(indarray)<=Dmax:
+            eta=eta[indarray]
+        elif len(indarray)>Dmax:
+            while len(indarray)>Dmax:
+                indarray=np.copy(indarray[1::])
+            eta=eta[indarray]
+        etas.append(eta)
+        R.append(1.0/(1.0-alpha)*np.log(np.sum(eta**alpha)))
+        u_=u[:,indarray]
+        utens=np.reshape(u_,(dl,dr,len(eta)))
+        ltensor=np.tensordot(mpsadd1,np.conj(utens),([1,3],[0,1]))
+    return etas,R
+
+
+
 def calculateRenyiEntropy(Q,R,init,N,dx,alpha,eps=1E-8,Dmax=50,tol=1E-10):
     """
     calculate the Renyi entropies of  finite regions of length n*dx for n in range(N)
     """
     D=np.shape(Q)[0]
     #lam,Ql,Rl,Qr,Rr=regauge_old(Q,R,dx,gauge='symmetric',linitial=np.reshape(lamold,D*D),rinitial=np.reshape(np.eye(D),D*D),nmaxit=100000,tol=regaugetol)
-    lam,Ql,Rl,Qr,Qr=canonize(Q,R,linit=init,rinit=init,maxiter=100000,tol=1E-10,ncv=40,numeig=6,pinv=1E-200,trunc=1E-16,Dmax=Q.shape[0],thresh=1E-10,verbosity=0,**kwargs)    
+    lam,Ql,Rl,Qr,Rr,rest=canonize(Q,R,linit=init,rinit=init,maxiter=100000,tol=1E-10,ncv=40,numeig=6,pinv=1E-200,trunc=1E-16,Dmax=Q.shape[0],thresh=1E-10,verbosity=0,**kwargs)    
 
     etas=[]
     S=[]
@@ -1086,8 +1119,8 @@ def calculateRenyiEntropy(Q,R,init,N,dx,alpha,eps=1E-8,Dmax=50,tol=1E-10):
                 indarray=np.copy(indarray[1::])
             eta=eta[indarray]
         etas.append(eta)
-        R.append(1.0/(1.0-alpha)*np.log(np.sum(eta**alpha)))
+        S.append(1.0/(1.0-alpha)*np.log(np.sum(eta**alpha)))
         u_=u[:,indarray]
         utens=np.reshape(u_,(dl,dr,len(eta)))
         ltensor=np.tensordot(mpsadd1,np.conj(utens),([1,3],[0,1]))
-    return etas,R
+    return etas,S
