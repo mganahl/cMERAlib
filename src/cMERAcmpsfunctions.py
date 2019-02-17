@@ -8,6 +8,7 @@ import functools as fct
 from scipy.sparse.linalg import ArpackError
 from scipy.sparse.linalg import eigs
 import warnings
+import ncon
 comm=lambda x,y:np.dot(x,y)-np.dot(y,x)
 anticomm=lambda x,y:np.dot(x,y)+np.dot(y,x)
 herm=lambda x:np.conj(np.transpose(x))
@@ -1062,31 +1063,59 @@ def calculatePartialPhiCorrelator(Ql,Rl,r,cutoff,dx,N):
 def calculateReducedDensity(Q,R,N,dx,eps=1E-8,Dmax=50,tol=1E-10,**kwargs):
     
     """
-    calculate the reduced density matri of a finite region of length N*dx
+    calculate an approximation to the reduced density matrix of a finite region of length N*dx
+    Parameters:
+    -------------
+    Q:   np.ndarray of shape (D,D)
+         the Q matrix of the cMPS
+    R:   list of np.ndarray of shape (D,D)
+         list of R matrices of the cMPS (one for each species)
+    N:   int
+         number of lattices sites 
+    dx:  float
+         the discretization parameter
+    eps: float
+         threshold below which eigenvalues of intermediate reduced density matrices are discarded
+    Dmax:int
+         maximal number of kept eigenvalues
+    tol: float
+         precision of the initial recanonization of the cMPS
+    kwargs: dict
+            additional keyword arguments to canonize
+    Returns:
+    ---------------------
+    (eta,rho)
+    eta:  np.ndarray
+          eigenvalues of the reduced density matrix of a region of sizse N*dx
+    rho:  reduced density matrix of a region of size N*dx
     """
     
     D=np.shape(Q)[0]
+    d=len(R)+1
     lam,Ql,Rl,Qr,Rr,rest=canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=40,numeig=6,pinv=1E-200,trunc=1E-16,Dmax=Q.shape[0],thresh=1E-10,verbosity=0,**kwargs)    
     B=toMPS(Qr,Rr,dx)
-    temp=ncon.ncon([np.diag(lam**2),B,B,np.conj(B),np.conj(B)],[[1,5],[1,2,-1],[2,-5,-2],[4,-6,-4],[5,4,-3]])
-    rho=ncon.ncon([rho,np.eye(D)],[[-1,-2,-3,-4,1,2],[1,2]])
-    reachedmax=False
+    #temp=ncon.ncon([np.diag(lam**2),B,B,np.conj(B),np.conj(B)],[[1,5],[1,2,-1],[2,-5,-2],[4,-6,-4],[5,4,-3]])
+    temp=np.reshape(ncon.ncon([np.diag(lam**2),B,B,np.conj(B),np.conj(B)],[[1,5],[1,2,-1],[2,-5,-2],[4,-6,-4],[5,4,-3]]),(d**2,d**2,D,D))
     for n in range(N):
+
+        rho=ncon.ncon([temp,np.eye(D)],[[-1,-2,1,2],[1,2]])
         eta,u=np.linalg.eigh(rho)
-        inds=np.nonzero(eta>eps)
-        indarray=np.array(inds[0])
-        if len(indarray)<=Dmax:
-            eta=eta[indarray]
-        elif len(indarray)>Dmax:
-            while len(indarray)>Dmax:
-                indarray=np.copy(indarray[1::])
-            eta=eta[indarray]
-        etas.append(eta)
-        R.append(1.0/(1.0-alpha)*np.log(np.sum(eta**alpha)))
-        u_=u[:,indarray]
-        utens=np.reshape(u_,(dl,dr,len(eta)))
-        ltensor=np.tensordot(mpsadd1,np.conj(utens),([1,3],[0,1]))
-    return etas,R
+        eta/=np.sum(eta)
+        inds=np.array(np.nonzero(eta>eps)[0])
+        if len(inds)<=Dmax:
+            eta=eta[inds]
+        elif len(inds)>Dmax:
+            L=len(inds)
+            inds=inds[L-Dmax:]
+            eta=eta[inds]
+        print(n,len(eta))            
+        u=u[:,inds]
+        # test=ncon.ncon([temp,np.conj(u),u,np.eye(D)],[[1,2,3,4],[1,-1],[2,-3],[3,4]])
+        # print(test)
+        # print(eta)
+        temp=np.reshape(ncon.ncon([temp,np.conj(u),B,u,np.conj(B)],[[1,2,3,4],[1,-1],[3,-5,-2],[2,-3],[4,-6,-4]]),(len(eta)*2,len(eta)*d,D,D))
+    rho=ncon.ncon([temp,np.eye(D)],[[-1,-2,1,2],[1,2]])
+    return rho,eta
 
 
 
