@@ -1108,7 +1108,7 @@ def calculateReducedDensity(Q,R,N,dx,eps=1E-8,Dmax=50,tol=1E-10,**kwargs):
             L=len(inds)
             inds=inds[L-Dmax:]
             eta=eta[inds]
-        print(n,len(eta))            
+        eta/=np.sum(eta)        
         u=u[:,inds]
         # test=ncon.ncon([temp,np.conj(u),u,np.eye(D)],[[1,2,3,4],[1,-1],[2,-3],[3,4]])
         # print(test)
