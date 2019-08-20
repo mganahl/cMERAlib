@@ -225,7 +225,7 @@ def mixedTransferOperator(Qupper,Rupper,Qlower,Rlower,direction,vector):
     the result of applying the cMPS transfer operator to vector
     """
     if len(Rupper)!=len(Rlower):
-        raise ValueError("different number of R matrices of upper and lower cMPS")        
+        raise ValueError("different number of R matrices of upper and lower cMPS")
     for R in Rupper:
         if Qupper.shape!=R.shape:
             raise ValueError("upper cMPS matrices have different shapes")
@@ -381,6 +381,7 @@ def eigs(LOP,numeig=6,init=None,maxiter=100000,tol=1e-12,ncv=40,which='LR',**kwa
         while np.abs(np.imag(eta[m]))>1E-3:
             #numeig=numeig+1
             #print ('found TM eigenvalue with large imaginary part (ARPACK BUG); recalculating with larger numeig={0}'.format(numeig))
+            dtype = np.complex128
             print ('found TM eigenvalue eta ={0} with large imaginary part (ARPACK BUG); recalculating with a new initial state and LR'.format(eta))
             eta,vec=sp.sparse.linalg.eigs(LOP,k=numeig,which='LR',v0=np.random.rand(LOP.shape[1]).astype(dtype),maxiter=maxiter,tol=tol,ncv=ncv,**kwargs)
             m=np.argmax(np.real(eta))
@@ -582,8 +583,6 @@ def canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=40,numeig=6,
     pinv:        float
                  pseudo-inverse cutoff; leave at default unless you know what you are
                  doing; setting it to too large values as compared to tol causes complete loss of orthogonality
-    Dmax:        int
-                 maximally allowed bond dimension; the cMPS is truncated down to this value
     trunc:       float
                  truncation threshold; if trunc>1E-15, Schmidt values smaller than trunc will be discarded
     Dmax:        int
@@ -678,6 +677,8 @@ def canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=40,numeig=6,
     if trunc>1E-15:
         rest=lam[lam<=trunc]
         lam=lam[lam>trunc]
+        if Dmax is None:
+            Dmax = len(lam)
         rest=np.append(lam[min(len(lam),Dmax)::],rest)
         lam=lam[0:min(len(lam),Dmax)]
         U=U[:,0:len(lam)]
