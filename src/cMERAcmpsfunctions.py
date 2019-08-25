@@ -153,12 +153,12 @@ def check_gauge(Q,R,gauge,thresh=1E-10,verbose=0):
     a float giving the total deviation from orthonormality, i.e. ||(11|E-11|| or || E|11) -11||
     """
     
-    Z=np.linalg.norm(transferOperator(Q,R,gauge,np.eye(Q.shape[0])))
+    Z=np.linalg.norm(transfer_operator(Q,R,gauge,np.eye(Q.shape[0])))
     if (Z>thresh) and (verbose>0):
         print('check_gauge: cMPS is not {0} orthogonal with a residual of {1}'.format(gauge,Z) )
     return Z
 
-def transferOperator(Q,R,direction,vector):
+def transfer_operator(Q,R,direction,vector):
     """
     calculate the action of the cMPS transfer operator onto vector
     Parameters:
@@ -194,9 +194,9 @@ def transferOperator(Q,R,direction,vector):
     #    for n in range(len(R)):
     #        out=out+R[n].dot(x).dot(herm(R[n]))
     #    return np.reshape(out,vector.shape)
-    return mixedTransferOperator(Q,R,Q,R,direction,vector)
+    return mixed_transfer_operator(Q,R,Q,R,direction,vector)
 
-def mixedTransferOperator(Qupper,Rupper,Qlower,Rlower,direction,vector):
+def mixed_transfer_operator(Qupper,Rupper,Qlower,Rlower,direction,vector):
     
     """
     calculate the action of the cMPS transfer operator onto vector
@@ -249,8 +249,126 @@ def mixedTransferOperator(Qupper,Rupper,Qlower,Rlower,direction,vector):
             out=out+Rupper[n].dot(x).dot(herm(Rlower[n]))
         return np.reshape(out,vector.shape)
 
+def mixed_cmps_cmpo_transfer_operator(Qupper, Rupper, Gammas_upper,
+                                      Qlower, Rlower, Gammas_lower,
+                                      direction, vector):
     
-def pseudotransferOperator(Q,R,l,r,direction,vector):
+    """
+    calculate the action of a combined cMPS-cMPO object (a cMPO applied to a cMPS)
+    transfer operator onto vector
+    Parameters:
+    ------------------------------------
+    Qupper:      np.ndarray of shape (D,D)
+                 the Q-matrix of a cMPS on the unconjugated side
+    Rupper:      list of np.ndarray() of shape (D,D)
+                 the R-matrices of the cMPS on the unconjugated side
+    Qlower:      np.ndarray of shape (D,D)
+                 the Q-matrix of the cMPS on the conjugated side
+    Rlower:      list of np.ndarray() of shape (D,D)
+                 the R-matrices of the cMPS on the conjugated side
+    direction:   int
+                 if direction in {1,'l','left'}: calculate the left-action
+                 if direction in {-1,'r','right'}: calculate the right-action
+    vector:      np.ndarray of shape (D*D) or (D,D)
+                 the left or right vector; it has to be obtained from reshaping
+                 a matrix of shape (D,D) into a vector.
+                 Index convention of matrix: index "0" is on the unconjugated leg, index "1" 
+                 on the conjugated leg
+
+    Returns:
+    ------------------------------------
+    np.ndarray of shape vector.shape
+    the result of applying the cMPS transfer operator to vector
+    """
+    if len(Rupper)!=len(Rlower):
+        raise ValueError("different number of R matrices of upper and lower cMPS")
+    for R in Rupper:
+        if Qupper.shape!=R.shape:
+            raise ValueError("upper cMPS matrices have different shapes")
+    for R in Rlower:        
+        if Qlower.shape!=R.shape:
+            raise ValueError("lower cMPS matrices have different shapes")
+
+    Du = np.shape(Qupper)[0]
+    Dl = np.shape(Qlower)[0]
+    Mu = Gammas_upper[0][0].shape[0]
+    Ml = Gammas_lower[0][0].shape[0]    
+    x = np.reshape(vector,(Du, Mu, Dl, Ml))
+    if direction in (1,'l','left'):
+        t1 = ncon.ncon([x, Gammas_upper[0][0]], [[-1, 1, -3, -4], [1, -2]])
+        t2 = ncon.ncon([x, Qupper], [[1, -2, -3, -4], [1, -1]])
+        t3 = ncon.ncon([x, Rupper[0], Gammas_upper[0][1]], [[1, 2, -3, -4], [1, -1], [2, -2]])
+        t4 = ncon.ncon([x, np.conj(Gammas_lower[0][0])], [[-1, -2, -3, 1],
+                                                          [1, -4]])
+        t5 = ncon.ncon([x, np.conj(Qlower)], [[-1, -2, 1, -4],
+                                              [1, -3]])
+        t6 = ncon.ncon([x, np.conj(Rlower[0]), np.conj(Gammas_lower[0][1])], [[-1, -2, 2, 1],
+                                                                              [2, -3], [1, -4]])
+        t7 = ncon.ncon([x,
+                        Gammas_upper[1][0],
+                        np.conj(Gammas_lower[1][0])],
+                       [[-1, 1, -3, 2], [1, -2], [2, -4]])
+        t8 = ncon.ncon([x,
+                        Gammas_upper[1][0],
+                        np.eye(Ml) + np.conj(Gammas_lower[1][1]),
+                        np.conj(Rlower[0])],
+                       [[-1, 1, 3, 2], [1, -2], [2, -4], [3, -3]])
+        t9 = ncon.ncon([x,
+                        Rupper[0],
+                        np.eye(Mu) + Gammas_upper[1][1],
+                        np.conj(Gammas_lower[1][0])],
+                       [[1, 2, -3, 3], [1, -1], [2, -2], [3, -4]])
+        t10 = ncon.ncon([x,
+                         Rupper[0],
+                         np.eye(Mu) + Gammas_upper[1][1],
+                         np.eye(Ml) + np.conj(Gammas_lower[1][1]),
+                         np.conj(Rlower[0])],
+                        [[1, 2, 3, 4], [1, -1], [2, -2], [4, -4], [3, -3]])
+        
+        
+        out = t1 + t2 + t3 + t4 + t5 + t6 + t7 + t8 + t9 + t10
+        return np.reshape(out,vector.shape)
+
+    elif direction in (-1,'r','right'):
+        t1 = ncon.ncon([x, Gammas_upper[0][0]], [[-1, 1, -3, -4], [-2, 1]])
+        t2 = ncon.ncon([x, Qupper], [[1, -2, -3, -4], [-1, 1]])
+        t3 = ncon.ncon([x, Rupper[0], Gammas_upper[0][1]], [[1, 2, -3, -4], [-1, 1], [-2, 2]])
+
+        t4 = ncon.ncon([x, np.conj(Gammas_lower[0][0])], [[-1, -2, -3, 1],
+                                                          [-4, 1]])
+        t5 = ncon.ncon([x, np.conj(Qlower)], [[-1, -2, 1, -4],
+                                              [-3, 1]])                
+        t6 = ncon.ncon([x, np.conj(Rlower[0]), np.conj(Gammas_lower[0][1])], [[-1, -2, 2, 1],
+                                                                              [-3, 2], [-4, 1]])
+        
+        t7 = ncon.ncon([x,
+                        Gammas_upper[1][0],
+                        np.conj(Gammas_lower[1][0])],
+                       [[-1, 1, -3, 2], [-2, 1], [-4, 2]])
+        t8 = ncon.ncon([x,
+                        Gammas_upper[1][0],
+                        np.eye(Ml) + np.conj(Gammas_lower[1][1]),
+                        np.conj(Rlower[0])],
+                       [[-1, 1, 3, 2], [-2, 1], [-4, 2], [-3, 3]])
+        t9 = ncon.ncon([x,
+                        Rupper[0],
+                        np.eye(Mu) + Gammas_upper[1][1],
+                        np.conj(Gammas_lower[1][0])],
+                       [[1, 2, -3, 3], [-1, 1], [-2, 2], [-4, 3]])
+        t10 = ncon.ncon([x,
+                         Rupper[0],
+                         np.eye(Mu) + Gammas_upper[1][1],
+                         np.eye(Ml) + np.conj(Gammas_lower[1][1]),
+                         np.conj(Rlower[0])],
+                        [[1, 2, 3, 4], [-1, 1], [-2, 2], [-4, 4], [-3, 3]])
+        
+        
+        out = t1 + t2 + t3 + t4 + t5 + t6 + t7 + t8 + t9 + t10
+        return np.reshape(out,vector.shape)
+
+
+    
+def pseudo_transfer_operator(Q,R,l,r,direction,vector):
     """
     computes the action of the pseudo transfer operator T^P=T-|r)(l|:
     
@@ -277,16 +395,16 @@ def pseudotransferOperator(Q,R,l,r,direction,vector):
     Returns:
     ------------------------
     np.ndarray of shape vector.shape
-    result of pseudotransferOperator as applied to vector
+    result of pseudo_transfer_operator as applied to vector
     """
     
     D=np.shape(Q)[1]
     x=np.reshape(vector,(D,D))
     
     if direction in (1,'l','left'):    
-        return transferOperator(Q,R,direction,vector)-np.trace(np.transpose(x).dot(np.reshape(r,(D,D))))*np.reshape(l,vector.shape)
+        return transfer_operator(Q,R,direction,vector)-np.trace(np.transpose(x).dot(np.reshape(r,(D,D))))*np.reshape(l,vector.shape)
     elif direction in (-1,'r','right'):            
-        return transferOperator(Q,R,direction,vector)-np.trace(np.transpose(np.reshape(l,(D,D))).dot(x))*np.reshape(r,vector.shape)
+        return transfer_operator(Q,R,direction,vector)-np.trace(np.transpose(np.reshape(l,(D,D))).dot(x))*np.reshape(r,vector.shape)
 
 
 def inverseTransferOperator(Q,R,l,r,ih,direction,x0=None,tol=1e-10,maxiter=4000,**kwargs):
@@ -332,7 +450,7 @@ def inverseTransferOperator(Q,R,l,r,ih,direction,x0=None,tol=1e-10,maxiter=4000,
     """
     
     D=np.shape(Q)[1]
-    mv=fct.partial(pseudotransferOperator,*[Q,R,l,r,direction])
+    mv=fct.partial(pseudo_transfer_operator,*[Q,R,l,r,direction])
     LOP=LinearOperator((D*D,D*D),matvec=mv,dtype=Q.dtype)
     [x,info]=lgmres(LOP,np.reshape(ih,D*D),x0=x0,tol=tol,maxiter=maxiter,**kwargs)
     while info<0:
@@ -430,9 +548,78 @@ def TMeigs(Q,R,direction,numeig=6,init=None,maxiter=100000,tol=1e-12,ncv=40,whic
     """
     D=np.shape(Q)[0]
     dtype=np.result_type(Q,*R)
-    mv=fct.partial(transferOperator,*[Q,R,direction])
+    mv=fct.partial(transfer_operator,*[Q,R,direction])
     LOP=LinearOperator((D*D,D*D),matvec=mv,rmatvec=None,matmat=None,dtype=dtype)
     return eigs(LOP,numeig=numeig,init=init,maxiter=maxiter,tol=tol,ncv=ncv,which=which,**kwargs)    
+
+
+
+def TMeigs_cmps_cmpo(Q, R, Gammas, direction,
+                     numeig=6,
+                     init=None,
+                     maxiter=100000,
+                     tol=1e-12,
+                     ncv=40,
+                     which='LR', **kwargs):
+    """
+    calculate the dominant left or right eigenvector of the cMPS transfer operator
+    Parameters:
+    ------------------
+    Q:           np.ndarray of shape (D,D)
+                 the Q-matrix of the cMPS
+    R:           list() of np.ndarray() of shape (D,D)
+                 the R-matrices of the cMPS
+    direction:   str or int
+                 if direction in {1,'l','left'}: calculate the left steady state
+                 if direction in {-1,'r','right'}: calculate the right steady state
+    numeig:      int
+                 number of eigenvalue-eigenvector pairs to be calculated
+    init:        np.ndarray of shape (D,D) or (D**2) or None
+                 initial guess for the eigenvector
+    maxiter:     int
+                 maximum number of iterations
+    tol:         float
+                 desired precision 
+    ncv:         int
+                 number of krylov vectors used in the solver
+    which:       str
+                 one of {'LM', 'SM' , 'LR' , 'SR' , 'LI' , 'SI'} see scipy documentation of eigs for details
+
+    **kwargs:    additinal named parameters to be passed to eigs
+
+    Returns:
+    ------------------
+    (eta,v)
+    eta: np.result_type(Q,*R)
+         eigenvalue
+    v:   np.ndarray of dtype np.result_type(Q,*R)
+         the dominant eigenvector
+    """
+    D = np.shape(Q)[0]
+    M = Gammas[0][0].shape[0]
+    dim = (D*M)**2
+
+    dtypes = []
+    for n in range(len(Gammas)):
+        for m in range(len(Gammas[n])):
+            dtypes.append(Gammas[n][m].dtype)
+    for n in range(len(Gammas)):
+        for m in range(len(Gammas[n])):
+            dtypes.append(Gammas[n][m].dtype)
+            
+    dtype = np.result_type(Q.dtype, R[0].dtype, *dtypes)
+
+    mv = fct.partial(
+        mixed_cmps_cmpo_transfer_operator,
+        *[Q, R, Gammas, Q, R, Gammas, direction])
+    LOP = LinearOperator((dim, dim), matvec=mv, rmatvec=None, matmat=None, dtype=dtype)
+    return eigs(LOP, numeig=numeig, init=init,
+                maxiter=maxiter,
+                tol=tol,
+                ncv=ncv,
+                which=which,
+                **kwargs)    
+
 
 def regauge(Q,R,gauge='left',init=None,maxiter=100000,tol=1E-10,ncv=100,numeig=6,pinv=1E-200,thresh=1E-10,**kwargs):
     """
@@ -557,7 +744,7 @@ def regauge(Q,R,gauge='left',init=None,maxiter=100000,tol=1E-10,ncv=100,numeig=6
     
 def canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=40,numeig=6,pinv=1E-200,trunc=1E-16,Dmax=100,thresh=1E-10,verbosity=0,**kwargs):
     """
-    regauge a cMPS into left or right orthogonal form
+    regauge a cMPS into central canonical form
 
     Parameters:
     --------------------------
@@ -698,6 +885,155 @@ def canonize(Q,R,linit=None,rinit=None,maxiter=100000,tol=1E-10,ncv=40,numeig=6,
 
     return lam,Ql,Rl,Qr,Rr,rest
 
+def canonize_cmps_cmpo(Q, R, Gammas, linit=None,
+                       rinit=None,
+                       maxiter=100000,tol=1E-10,ncv=40,numeig=6,pinv=1E-200,trunc=1E-16,Dmax=100,thresh=1E-10,verbosity=0,**kwargs):
+    """
+    regauge a cMPS into left or right orthogonal form
+
+    Parameters:
+    --------------------------
+    Q:           np.ndarray of shape (D,D)
+    R:           list of np.ndarrays of shape (D,D)
+    Gammas:      list of np.ndarray; the cmpo matrices
+    gauge:       str
+                 gauge in ['left','l','right','r']; output gauge of the cMPS
+    linit:       np.ndarray of shape (D,D) or (D**2,), or None
+                 initial guess for the left dominant eigenvector
+                 of the cMPS transfer operator
+    rinit:       np.ndarray of shape (D,D) or (D**2,), or None
+                 initial guess for the right dominant eigenvector
+                 of the cMPS transfer operator
+    maxiter:     int
+                 maximum number of iterations
+    tol:         float
+                 desired precision of left and right dominant eigenvectors
+                 of the cMPS transfer operators 
+    ncv:         int
+                 number of krylov vectors used in the solver
+    numeig:      int
+                 number of eigenvalue-eigenvector pairs to be calculated
+    pinv:        float
+                 pseudo-inverse cutoff; leave at default unless you know what you are
+                 doing; setting it to too large values as compared to tol causes complete loss of orthogonality
+    trunc:       float
+                 truncation threshold; if trunc>1E-15, Schmidt values smaller than trunc will be discarded
+    Dmax:        int
+                 if trunc>1E-15, the maximally allowed bond dimension is set to Dmax; 
+                 the cMPS is truncated down to this value after Schmidtvalues < trunc have been discarded
+    thresh:      float
+                 if largest eigenvalue of the cMPS transferoperator has a imaginary part larger than thresh,
+                 warning is raised
+    **kwargs:    additinal named parameters to be passed to eigs
+
+    Returns:
+    ------------------------------
+    (lam,Ql,Rl,Qr,Rr,rest)
+
+    lam:   np.ndarray of shape (D,D)
+           right dominant eigenvector of the cMPS transfer operator
+    Ql:    np.ndarray of shape (D,D)
+           left orthogonal cMPS matrix
+    Rl:    list of np.ndarray of shape (D,D)
+           left orthogonal cMPS matrix
+    Qr:    np.ndarray of shape (D,D)
+           right orthogonal cMPS matrix
+    Rr:    list of np.ndarray of shape (D,D)
+           right orthogonal cMPS matrix
+    rest:  list of float
+           truncated Schmidt-values
+    """
+    dtype=np.result_type(Q,*R)    
+    [chi ,chi2]=np.shape(Q)
+    M = Gammas[0][0].shape[0]
+    [etal,v] = TMeigs_cmps_cmpo(Q, R, Gammas,'left',numeig=numeig,init=linit,maxiter=maxiter,tol=tol,ncv=ncv,which='LR',**kwargs)
+    
+    if verbosity>0:
+        print('left eigenvalue=',etal)
+
+    if np.abs(np.imag(etal))>thresh:
+        warnings.warn('in canonize: found eigenvalue eta with large imaginary part: {0}'.format(np.imag(etal)),stacklevel=2)
+    etal=np.real(etal)
+
+    l=np.reshape(v,(chi * M, chi * M))
+    l=l/np.trace(l)
+    if dtype==float:
+        l=np.real((l+herm(l))/2.0)
+    if dtype==complex:
+        l=(l+herm(l))/2.0
+    eigvals,u=np.linalg.eigh(l)
+    eigvals[np.nonzero(eigvals<pinv)]=0.0
+    eigvals=eigvals/np.sum(eigvals)
+    l=u.dot(np.diag(eigvals)).dot(herm(u))
+
+    inveigvals=np.zeros(len(eigvals))
+    inveigvals[np.nonzero(eigvals>pinv)]=1.0/eigvals[np.nonzero(eigvals>pinv)]
+    inveigvals[np.nonzero(eigvals<=pinv)]=0.0
+
+    y=np.transpose(u.dot(np.diag(np.sqrt(eigvals))).dot(herm(u)))
+    invy=np.transpose(herm(u)).dot(np.diag(np.sqrt(inveigvals))).dot(np.transpose(u))
+
+
+    [etar,v] = TMeigs_cmps_cmpo(Q, R, Gammas, 'right', numeig=numeig,init=rinit,maxiter=maxiter,tol=tol,ncv=ncv,which='LR',**kwargs)
+    if verbosity>0:
+        print('right eigenvalue=',etar)
+    if np.abs(np.imag(etar))>thresh:
+        warnings.warn('in canonize: found eigenvalue eta with large imaginary part: {0}'.format(np.imag(etar)),stacklevel=2)
+    etar=np.real(etar)
+    
+    r=np.reshape(v,(chi *M, chi * M))
+    r=r/np.trace(r)
+
+    if dtype==float:
+        r=np.real((r+herm(r))/2.0)
+    if dtype==complex:
+        r=(r+herm(r))/2.0
+
+    eigvals,u=np.linalg.eigh(r)
+    eigvals[np.nonzero(eigvals<pinv)]=0.0
+    eigvals/=np.sum(eigvals)
+    r=u.dot(np.diag(eigvals)).dot(herm(u))
+
+    inveigvals=np.zeros(len(eigvals))
+    inveigvals[np.nonzero(eigvals>pinv)]=1.0/eigvals[np.nonzero(eigvals>pinv)]
+    inveigvals[np.nonzero(eigvals<=pinv)]=0.0
+
+
+    r=u.dot(np.diag(eigvals)).dot(herm(u))
+    x=u.dot(np.diag(np.sqrt(eigvals))).dot(herm(u))
+    invx=u.dot(np.diag(np.sqrt(inveigvals))).dot(herm(u))
+
+    Dmpo=Gammas[0][0].shape[0]    
+    Qkron = np.kron(np.eye(Q.shape[0]),Gammas[0][0])+np.kron(Q,np.eye(Dmpo))+np.kron(R[0],Gammas[0][1])
+    Rkron = np.kron(np.eye(R[0].shape[0]),Gammas[1][0])+np.kron(R[0],np.eye(Dmpo) + Gammas[1][1])
+
+    Qkron -= etal/2.0*np.eye(chi * M)
+
+    
+    D = Qkron.shape[0]
+    [U,lam,V]=svd(y.dot(x))        
+    Z=np.linalg.norm(lam)
+    lam=lam/Z        
+    rest=[0.0]
+    if trunc>1E-15:
+        rest=lam[lam<=trunc]
+        lam=lam[lam>trunc]
+        if Dmax is None:
+            Dmax = len(lam)
+        rest=np.append(lam[min(len(lam),Dmax)::],rest)
+        lam=lam[0:min(len(lam),Dmax)]
+        U=U[:,0:len(lam)]
+        V=V[0:len(lam),:]
+        Z1=np.linalg.norm(lam)
+        lam=lam/Z1
+    Ql=Z*np.diag(lam).dot(V).dot(invx).dot(Qkron).dot(invy).dot(U)
+    Rl=[Z*np.diag(lam).dot(V).dot(invx).dot(Rkron).dot(invy).dot(U)]
+    
+    Qr=Z*V.dot(invx).dot(Qkron).dot(invy).dot(U).dot(np.diag(lam))
+    Rr = [Z*V.dot(invx).dot(Rkron).dot(invy).dot(U).dot(np.diag(lam))]
+
+    return lam,Ql,Rl,Qr,Rr,rest
+
 
 
 def PiPiCorrMoronOrdered(Ql,Rl,r,dx,N,cutoff,psiinitial=None,psidaginitial=None):
@@ -719,8 +1055,8 @@ def PiPiCorrMoronOrdered(Ql,Rl,r,dx,N,cutoff,psiinitial=None,psidaginitial=None)
         if n%1000==0:
             stdout.write("\r %i/%i" %( n,N))
             stdout.flush()
-        vecpsi=vecpsi+dx*transferOperator(Ql,[Rl],1,vecpsi)
-        vecpsidag=vecpsidag+dx*transferOperator(Ql,[Rl],1,vecpsidag)
+        vecpsi=vecpsi+dx*transfer_operator(Ql,[Rl],1,vecpsi)
+        vecpsidag=vecpsidag+dx*transfer_operator(Ql,[Rl],1,vecpsidag)
         corr[n]=np.tensordot(np.reshape(vecpsi,(D,D)),rdenspsi,([0,1],[0,1]))+\
                  np.tensordot(np.reshape(vecpsidag,(D,D)),rdenspsidag,([0,1],[0,1]))-\
                  2.0*np.tensordot(np.reshape(vecpsidag,(D,D)),rdenspsi,([0,1],[0,1]))
@@ -743,7 +1079,7 @@ def calculateRelativisticCorrelators(Ql,Rl,r,cutoff,operators,dx,N,initial=None)
                enters definition of phi and pi via
                psi=sqrt(cutoff/2)phi +1/sqrt(2*cutoff)pi
     operators: list of length 2 of str
-               each element in operators can be either of ['psi','psidag','n']
+               each element in operators can be either of ['psi','psidag','n', 'pi', 'dxphi','phi']
     dx:        float
                space increment, used to calculate the correlation at psi*(0)psi(n*dx)
     N:         int
@@ -795,7 +1131,7 @@ def calculateRelativisticCorrelators(Ql,Rl,r,cutoff,operators,dx,N,initial=None)
         if n%1000==0:
             stdout.write("\r %i/%i" %( n,N))
             stdout.flush()
-        vec=vec+dx*transferOperator(Ql,[Rl],1,vec)
+        vec=vec+dx*transfer_operator(Ql,[Rl],1,vec)
         corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
     return corr,vec
 
@@ -975,7 +1311,7 @@ def calculateCorrelators(Ql,Rl,r,operators,dx,N):
         if n%1000==0:
             stdout.write("\r %i/%i" %( n,N))
             stdout.flush()
-        vec=vec+dx*transferOperator(Ql,[Rl],1,vec)
+        vec=vec+dx*transfer_operator(Ql,[Rl],1,vec)
         corr[n]=np.tensordot(np.reshape(vec,(D,D)),rdens,([0,1],[0,1]))
     return corr
 
@@ -1027,7 +1363,7 @@ def calculatePhaseCorrelator(Ql,Rl,r,cutoff,dx,N):
         if n%1000==0:
             stdout.write("\r %i/%i" %( n,N))
             stdout.flush()
-        vec=vec+dx*mixedTransferOperator(Ql,[Rl],ql,rl,'left',vec)
+        vec=vec+dx*mixed_transfer_operator(Ql,[Rl],ql,rl,'left',vec)
         corr[n]=np.tensordot(np.reshape(vec,(D,D)),r,([0,1],[0,1]))
     return corr,vec
 
@@ -1056,7 +1392,7 @@ def calculatePartialPhiCorrelator(Ql,Rl,r,cutoff,dx,N):
         if n%1000==0:
             stdout.write("\r %i/%i" %( n,N))
             stdout.flush()
-        vec=vec+dx*mixedTransferOperator(Ql,[Rl],ql,rl,'left',vec)
+        vec=vec+dx*mixed_transfer_operator(Ql,[Rl],ql,rl,'left',vec)
         corr[n]=np.tensordot(np.reshape(vec,(D,D)),r,([0,1],[0,1]))
     return corr,vec
 
