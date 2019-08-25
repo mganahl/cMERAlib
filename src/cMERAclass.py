@@ -8,6 +8,7 @@ import src.cMERAlib as cmeralib
 import src.utils as utils
 import matplotlib.pyplot as plt
 import math
+from sys import stdout
 import warnings
 import re
 import random
@@ -15,11 +16,12 @@ from pprint import pprint
 comm=lambda x,y:np.dot(x,y)-np.dot(y,x)
 anticomm=lambda x,y:np.dot(x,y)+np.dot(y,x)
 herm=lambda x:np.conj(np.transpose(x))
-class cMERA(object):
+class cMERA:
     """
     a class for simulating a cMERA evolution
     """
-    def __init__(self,cutoff=1.0,alpha=None,inter=0.0,invrange=1.0,operators=['n','n'],delta=1E-3j,nwarmup=2,Dmax=16,dtype=complex):
+    #def __init__(self,cutoff=1.0,alpha=None,inter=0.0,invrange=1.0,operators=['n','n'],delta=1E-3j,nwarmup=0,Dmax=16,dtype=complex):
+    def __init__(self,Dmax=16,dtype=np.complex128):
         """
         initialize a cMERA evolution for a scalar boson
         Parameters:
@@ -60,16 +62,15 @@ class cMERA(object):
         self.Dmax=Dmax
         self.scale=0.0
         self.iteration=0
-        self.cutoff=cutoff
         self.Ql=np.ones((1,1)).astype(self.dtype)
         self.Rl=np.zeros((1,1)).astype(self.dtype)
         self._lam=np.array([1.0])
         self.D=len(self._lam)
         self.truncated_weight=0.0
-        self.Gamma=cmeralib.freeEntanglingPropagator(cutoff=cutoff,delta=delta,alpha=alpha)
+        # self.Gamma=cmeralib.freeEntanglingPropagator(cutoff=cutoff,delta=delta,alpha=alpha)
 
-        for n in range(nwarmup):
-            self.doStep(cutoff=cutoff,alpha=alpha,inter=inter,invrange=invrange,operators=operators,delta=delta,truncAfterFree=False,truncAfterInt=False)
+        # for n in range(nwarmup):
+        #     self.doStep(cutoff=cutoff,alpha=alpha,inter=inter,invrange=invrange,operators=operators,delta=delta,truncAfterFree=False,truncAfterInt=False)
             #do a warmup evolution without any truncation
             #problems can arise if truncation threshold of the evolution is so large that it truncates away any new schmidt values; in this case
             #the state will stay a product state for all times. A way to circumvent this problem is to either choose a smaller truncation threshold
@@ -131,7 +132,7 @@ class cMERA(object):
                   related to printing some warnings; not relevant
         """
         _=self.truncate(Dmax=self.Dmax)
-        
+
     def doStep(self,cutoff=1.0,alpha=None,inter=0.0,invrange=1.0,operators=['n','n'],delta=1E-3,truncAfterFree=True,truncAfterInt=True,
                pinv=1E-200,tol=1E-12,Dthresh=1E-6,trunc=1E-10,Dinc=1,ncv=30,numeig=6,thresh=1E-8):
         """
@@ -199,7 +200,6 @@ class cMERA(object):
                   related to printing some warnings; not relevant
         """
         
-        self.cutoff=cutoff        
         if len(operators)==2:
             if not all([o=='n' for o in operators]):
                 raise ValueError("unknown operators {}. If len(operators)==2, elements in operators can only be 'n'".format(np.array(operators)[[o != 'n' for o in operators]]))
@@ -234,6 +234,165 @@ class cMERA(object):
                 self.Rl=np.kron(self.Rl,self.Gammaint[1][1])
             elif interactiontype=='oooo':                
                 self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gammaint[0][1])+np.kron(self.Rl,np.eye(self.Dmpoint))
+            if truncAfterInt:
+                _=self.truncate(Dmax=self.D,trunc=trunc,tol=tol,ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh)                
+        self.Ql*=np.exp(-np.imag(delta))
+        self.Rl*=np.exp(-np.imag(delta)/2.0)
+        self.scale+=np.abs(delta)
+        self.iteration+=1        
+        
+    def do_second_order_K_step(self,Gammas_1, Gammas_2, delta,
+                pinv=1E-200,tol=1E-12,Dthresh=1E-10,trunc=1E-14,Dinc=1,ncv=30,numeig=1,thresh=1E-8,
+                verbose=0):
+        """
+        do a single second order evolution K evolution step with Gammas_1 and Gammas_2
+
+        Parameters:
+        --------------------------
+        Gammas_1, Gammas_2: np.ndarray of rank 4 
+                            the Gamma matrices of the MPO, for 
+                            dt1 = (1+i)/2*delta and dt2=(1-i)/2*delta.
+                            the cMPS is evolved with 11 + Gammas_1[1][1]  and 11 + Gammas_2[1][1]  (different from doStep)
+        delta:    float/complex
+                  step-size;
+                  propagators are constructed using delta
+                  use np.real(delta) == 0, np.imag(delta) > 0 for lorentzian evolution
+        pinv:     float (1E-200)
+                  pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
+        tol:      float (1E-10):
+                  precision parameter for calculating the reduced density matrices during truncation
+        Dthresh:  float (1E-6)
+                  threshold parameter; if the truncated weight of the last truncation is larger than Dthres,
+                  the bond dimension D is increased by Dinc; if D is already at its maximally allowed value, 
+                  D is not changed
+        trunc:    float (1E-10)
+                  truncation threshold during regauging; all Schmidt-values smaller than trunc will be removed, irrespective
+                  of the maximally allowed bond-dimension
+        Dinc:     int (1) 
+                  bond-dimension increment
+        ncv:      int (30)nn
+                  number of krylov vectors to be used when calculating the transfer-matrix eigenvectors during truncation
+        numeig:   int (6)
+                  number of eigenvector-eigenvalue pairs of the transfer-matrix to be calculated 
+        thresh:   float (1E-10)
+                  print warning if absolute value of imag part of eigen values of TM is larger than `thresh`
+        """
+        D = self.Ql.shape[0]
+        if (self.truncated_weight>Dthresh) and (D<self.Dmax) and (len(self.lam)==D):
+            D+=Dinc
+
+        self.Ql, self.Rl, self.lam, self.truncated_weight = cmeralib.do_K_step(self.Ql, self.Rl, self.lam, Gammas_1, 
+                                                                             Dmax=D, tol=tol, ncv=ncv, numeig=numeig, 
+                                                                             warnthresh=thresh, trunc=trunc)
+        self.Ql, self.Rl, self.lam, self.truncated_weight = cmeralib.do_K_step(self.Ql, self.Rl, self.lam, Gammas_2, 
+                                                                             Dmax=D, tol=tol, ncv=ncv, numeig=numeig, 
+                                                                             warnthresh=thresh, trunc=trunc)
+    def rescale(self, delta):
+        self.Ql *= np.exp(-np.imag(delta))
+        self.Rl *= np.exp(-np.imag(delta)/2)
+        
+    def do_tdvp_mpo_step(self,cutoff=1.0,alpha=None,inter=0.0,invrange=1.0,operators=['n','n'],delta=1E-3,truncAfterFree=True,truncAfterInt=True,
+                         pinv=1E-200,tol=1E-12,Dthresh=1E-6,trunc=1E-10,Dinc=1,ncv=30,numeig=6,thresh=1E-8):
+        """
+        do a single evolution step
+
+        Parameters:
+        cutoff:    float (1.0)
+                   UV cutoff of the cMERA
+                   cutoff enters in the definition of the free entangler K0 (see below) 
+                   as well as in the definition of the interacting entangler via the definition of 
+                   psi(x) =\sqrt(cutoff/2)phi(x)+1/sqrt(2*cutoff)pi(x)
+        alpha:     float or None
+                   prefactor of the free entangler, if None, alpha=cutoff/4 is used
+                   the free entangler has the form 
+                   K0=alpha\int dx dy exp(-cutoff*abs(x-y)) :pi(x)phi(y):
+                     =-1j*alpha/2\int dx dy exp(-cutoff*abs(x-y))*(psi(x)psi(y)-psidag(x)psidag(y))
+                   to obtain the correct entangler for the ground-state of free boson with cutoff, use alpha=cutoff/4 (default)
+        inter:     float
+                   the interaction strength of the entangler
+        invrange:  float
+                   inverse length scale of the interaction
+        operators: list of str
+                   operators used to construct entangling propagator
+                   case 1: for operators = ['n','n'], the entangler is given by inter * \int dx dy n(x) n(y) exp(-invrange*abs(x-y))
+                           if len(operators)==2, operators=['n','n'] is the only allowed choice
+                   case 2: for operators = [o1,o2,o3,o4], the entangler is given by inter * \int dw dx dy dx o1(w) o2(x) o3(y) o4(z) exp(-invrange abs(w-z))
+                           if len(operators)==4, each element in operators can be one of the following :'phi','pi','psi','psidag'
+        delta:    float
+                  step-size;
+                  propagators are constructed using delta
+                  use np.real(delta) == 0, np.imag(delta) > 0 for lorentzian evolution
+        truncAfterFree:  bool
+                         if True, truncate the cMPS after application of the free propagator
+                         Application order of propagators: 
+                         1. free evolution
+                         2. interacting evolution
+                         3. rescaling
+        truncAfterInt:   bool
+                         if True, truncate the cMPS after application of the interacting propagator
+                         for operators =['phi','phi','phi','phi'], bond dimension of the propagator 
+                         is 4. Together with bond dimension 3 of free propagator, a full application 
+                         without intermediate truncation increases D by a factor of 12, which can cause
+                         slowness.
+                         Application order of propagators: 
+                         1. free evolution
+                         2. interacting evolution
+                         3. rescaling
+        pinv:     float (1E-200)
+                  pseudo-inverse parameter for inversion of the Schmidt-values and reduced density matrices
+        tol:      float (1E-10):
+                  precision parameter for calculating the reduced density matrices during truncation
+        Dthresh:  float (1E-6)
+                  threshold parameter; if the truncated weight of the last truncation is larger than Dthres,
+                  the bond dimension D is increased by Dinc; if D is already at its maximally allowed value, 
+                  D is not changed
+        trunc:    float (1E-10)
+                  truncation threshold during regauging; all Schmidt-values smaller than trunc will be removed, irrespective
+                  of the maximally allowed bond-dimension
+        Dinc:     int (1) 
+                  bond-dimension increment
+        ncv:      int (30)nn
+                  number of krylov vectors to be used when calculating the transfer-matrix eigenvectors during truncation
+        numeig:   int (6)
+                  number of eigenvector-eigenvalue pairs of the transfer-matrix to be calculated 
+        thresh:   float (1E-10)
+                  related to printing some warnings; not relevant
+        """
+        
+        if len(operators)==2:
+            if not all([o=='n' for o in operators]):
+                raise ValueError("unknown operators {}. If len(operators)==2, elements in operators can only be 'n'".format(np.array(operators)[[o != 'n' for o in operators]]))
+            if abs(inter)>1E-10:            
+                self.Gammaint=cmeralib.density_density_interactingEntanglingPropagator(invrange=invrange,delta=delta,inter=inter)
+                self.Dmpoint=self.Gammaint[0][0].shape[0]
+                interactiontype='nn'
+        elif len(operators)==4:
+            if not all([o in ('phi','pi','psi','psidag') for o in operators]):
+                print()
+                raise ValueError("unknown operators {}. If len(operators)==4, each element in operators has to be one of ('phi','pi','psi','psidag')".format(np.array(operators)[[o not in ('phi','pi','psi','psidag') for o in operators]]))
+            if abs(inter)>1E-10:
+                self.Gammaint=cmeralib.interactingEntanglingPropagator(cutoff=cutoff,invrange=invrange,delta=delta,inter=inter,operators=operators,dtype=self.dtype)
+                self.Dmpoint=self.Gammaint[0][0].shape[0]
+                interactiontype='oooo'
+        else:
+            raise ValueError("length of list 'operators' has to be 2 or 4")
+        self.Gamma=cmeralib.freeEntanglingPropagator(cutoff=cutoff,delta=delta,alpha=alpha)
+        self.Dmpo=self.Gamma[0][0].shape[0]
+        
+        if (self.truncated_weight>Dthresh) and (self.D<self.Dmax) and (len(self._lam)==self.D):
+            self.D+=Dinc
+            
+        if (alpha==None) or (np.abs(alpha)>1E-10):
+            self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gamma[0][0])+np.kron(self.Ql,np.eye(self.Dmpo))+np.kron(self.Rl,self.Gamma[0][1])
+            self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gamma[1][0])+np.kron(self.Rl,np.eye(self.Dmpo))
+            if truncAfterFree:
+                _=self.truncate(Dmax=self.D,trunc=trunc,tol=tol,ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh)
+        if np.abs(inter)>1E-10:
+            self.Ql=np.kron(np.eye(self.Ql.shape[0]),self.Gammaint[0][0])+np.kron(self.Ql,np.eye(self.Dmpoint))
+            if interactiontype=='nn':
+                self.Rl=np.kron(self.Rl,self.Gammaint[1][1])
+            elif interactiontype=='oooo':                
+                self.Rl=np.kron(np.eye(self.Rl.shape[0]),self.Gammaint[1][0])+np.kron(self.Rl,np.eye(self.Dmpoint))
             if truncAfterInt:
                 _=self.truncate(Dmax=self.D,trunc=trunc,tol=tol,ncv=ncv,numeig=numeig,pinv=pinv,thresh=thresh)                
         self.Ql*=np.exp(-np.imag(delta))
