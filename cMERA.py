@@ -51,6 +51,8 @@ def calculateCorrelator(data_accumulator,cmera,operators,N1=10,N2=40000,eps1=1E-
                       data_accumulator['pipi']=correlation_function; 
     cmera:            cMERA instance
                       a cMERA simulation
+    operators:        list of str
+                      the operators to be calculated, e.g. ['pi','pi']
     N1,eps1:          int,float
     N2,eps2:          int,float
                       the corralation function is calculated at points np.arange(N1)*eps1 and N1*eps1+np.arange(N2)*eps2
